@@ -314,9 +314,26 @@ export class PluginInventoryImpl implements PluginInventory {
     const attributed = new Set<string>()
     const bundleRecords: PluginBundleRecord[] = []
     const cachedChecks = this.state.get().checks
+    /**
+     * DSH-shipped components (`availability === 'installation'`) are managed by
+     * DSH's own Built-in plugins page. Keep discovering them — their Loader rows
+     * stay claimed below so they cannot reappear as unattributed rows — but
+     * exclude them from the Extension Manager's records, stats and update scope.
+     */
+    const excludedBuiltinBundles: string[] = []
+    const excludedBuiltinEntryIds = new Set<string>()
     for (const bundle of bundles) {
       // Catalog-only entries are not installed: they are not part of the list.
       if (!bundle.installed && bundle.availability !== 'installation') continue
+      if (bundle.availability === 'installation') {
+        excludedBuiltinBundles.push(bundle.name)
+        for (const row of bundle.rows) {
+          if (row.entryId === undefined) continue
+          excludedBuiltinEntryIds.add(row.entryId)
+          attributed.add(row.entryId)
+        }
+        continue
+      }
       const meta = PLUGIN_DISPLAY[bundle.name]
       const localizedTitle = localizedText(bundle.meta?.title)
       const localizedDescription = localizedText(bundle.meta?.description)
@@ -479,14 +496,17 @@ export class PluginInventoryImpl implements PluginInventory {
       // current profile loads; expose that relation instead of a duplicate copy.
       bundleRecords.push(record)
     }
+    // DSH-shipped rows are excluded from the managed row totals as well.
+    const managedPlugins = plugins.filter(plugin => !excludedBuiltinEntryIds.has(plugin.entryId))
     const stats: PluginStats = {
       bundlesInstalled: bundleRecords.filter(record => record.availability === 'profile' && record.runtime.installed && record.scope === 'current-profile').length,
       bundlesEnabled: bundleRecords.filter(record => record.availability === 'profile' && record.runtime.enabled === true).length,
       bundlesOtherProfiles: bundleRecords.filter(record => record.scope === 'other-profile').length,
-      bundlesOfficial: bundleRecords.filter(record => record.availability === 'installation').length,
-      rowsTotal: plugins.length,
-      rowsLoaded: plugins.filter(plugin => plugin.fiberPhase === 'active').length,
-      rowsFailed: plugins.filter(plugin => plugin.fiberPhase === 'failed').length,
+      // DSH-shipped components are outside the managed scope; kept at 0 for API compatibility.
+      bundlesOfficial: 0,
+      rowsTotal: managedPlugins.length,
+      rowsLoaded: managedPlugins.filter(plugin => plugin.fiberPhase === 'active').length,
+      rowsFailed: managedPlugins.filter(plugin => plugin.fiberPhase === 'failed').length,
       updatesAvailable: bundleRecords.filter(record => record.version.status === 'update-available').length,
       abnormal: bundleRecords.filter(record => record.diagnostics.some(item => item.level === 'error') || record.runtime.error !== undefined).length,
     }
@@ -503,9 +523,13 @@ export class PluginInventoryImpl implements PluginInventory {
     if (runtimeOnlyRows.length > 0) {
       notes.push(`${String(runtimeOnlyRows.length)} 个插件行只在运行时出现（无安装包归属），已在列表中标注。`)
     }
+    if (excludedBuiltinBundles.length > 0) {
+      notes.push(`${String(excludedBuiltinBundles.length)} 个 DSH 内置组件由 DSH 自带的 Built-in plugins 页面管理，未纳入本页清单、统计与更新范围。`)
+    }
     const unexplained: Reconciliation['unexplained'] = []
     counts.attributedRows = attributed.size
     counts.unattributedRows = rowRecords.length
+    counts.excludedBuiltinBundles = excludedBuiltinBundles.length
     counts.otherProfileDependencies = [...otherDeps.keys()].length
     const reconciliation: Reconciliation = {
       complete: bundlesError === undefined && pluginsError === undefined

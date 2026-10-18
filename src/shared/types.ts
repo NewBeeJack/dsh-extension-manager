@@ -360,7 +360,7 @@ export interface PluginStats {
   bundlesEnabled: number
   /** Bundle packages readable from other profiles (informational). */
   bundlesOtherProfiles: number
-  /** Shipped/official packages readable from the installation. */
+  /** Shipped/official packages readable from the installation (excluded from the managed scope; reported as 0). */
   bundlesOfficial: number
   /** Plugin rows in the current runtime (all bundles). */
   rowsTotal: number
