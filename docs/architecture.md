@@ -2,7 +2,7 @@
 
 > 对象：需要维护/扩展 `dsh-extension-manager` 的开发者。
 > 范围：Host 半（`src/host/**`）、Web client 半（`src/client/**`）、共享契约（`src/shared/**`），以及两者的数据/状态/安全边界。
-> 说明：本文对应 **v0.1.0**（DSH 0.2.1-rc.2 基线）。功能与接口描述均来自本仓库源码；验收方法见 [testing.md](testing.md)。Git 安装 Bundle 更新与 `requiresConfirmation` 项的 Web UI 确认链路均已实现并验收；当前确实未提供的能力在 §14 如实列出。
+> 说明：本文对应 **v0.1.1**（DSH 0.2.1-rc.2 基线）。功能与接口描述均来自本仓库源码；验收方法见 [testing.md](testing.md)。Git 安装 Bundle 更新与 `requiresConfirmation` 项的 Web UI 确认链路均已实现并验收；当前确实未提供的能力在 §14 如实列出。
 
 - 用户与维护指南：[../README.zh.md](../README.zh.md)
 - 英文简版：[../README.md](../README.md)
@@ -423,7 +423,7 @@ Host 启动时 `index.ts` 调用 `void updates.recover()`（不阻塞启动）�
 - **新增接口**：`shared/api.ts` 加端点常量与 body 类型 → `routes.ts` 实现 → `client/api.ts` transport → 页面调用。
 - **代码风格**：严格 TypeScript（`exactOptionalPropertyTypes`、`noUncheckedIndexedAccess`）；代码注释英文、用户可见文案中文；不用第三方运行时库（Host 仅 `semver`/`yaml`/`undici` + Node 内置）；client 只用 DSH primitives/slots。
 
-### 当前未提供 / 已知边界（v0.1.0）
+### 当前未提供 / 已知边界（v0.1.1）
 
 以下不是“待修复缺陷”，而是当前版本已确认的范围；其中内部接口整理项对用户无影响：
 

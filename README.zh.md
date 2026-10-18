@@ -4,11 +4,11 @@
 
 - 页面入口：DSH Web GUI 的 **Settings → 扩展管理器**（内置设置分区，不是独立网页或独立端口）。
 - 兼容基线：**DSH 0.2.1-rc.2**（Windows 环境实测，见 §11）。
-- 当前版本：0.1.0。真实 `web` Profile 已用 **`file:` 本地 tarball** 正式安装（安装包位于 `$DSH_HOME/extension-manager/`）；开发阶段使用 `link:` 便于热更新。管理器自身不支持页面内自更新（见 §8.6）。
+- 当前版本：0.1.1（npm 包名 `dsh-extension-manager`；也可用本地 tarball 安装）。管理器自身不支持页面内自更新（见 §8.6）。
 - 所有数据来自 Host 侧真实读取：`ctx.pluginManager.listBundles()` / `listPlugins()`、`ctx.skills.snapshot()`、`skill-filesystem` 运行时配置、profile 清单与 pnpm 锁文件、npm Registry、GitHub、`git ls-remote`。
 - 更新通过持久化事务执行：备份 → 下载 → 暂存校验 → 安装 → 读回校验 → 需要时等待重启；失败自动回滚。
 
-> 本文档对应 **v0.1.0**（DSH 0.2.1-rc.2 基线）。功能描述全部取自本仓库源码；测试与验收方法见 [docs/testing.md](docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前确实不提供的能力在 §9 如实列出。
+> 本文档对应 **v0.1.1**（DSH 0.2.1-rc.2 基线）。功能描述全部取自本仓库源码；测试与验收方法见 [docs/testing.md](docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前确实不提供的能力在 §9 如实列出。
 
 ![扩展管理器 Plugins 页面](docs/screenshots/plugins.png)
 
@@ -44,7 +44,7 @@
 
 - 不修改“其他 Profile”的任何内容；只读展示。
 - 不提供伪造的技能启停开关（DSH 没有官方逐技能启停机制）。
-- 不自动更新随 DSH 安装提供的组件；它们随 DSH 发行版更新。
+- 不展示也不管理随 DSH 安装提供的组件；它们由 DSH 左侧导航的 **Built-in plugins** 页面管理，并随 DSH 发行版更新。
 - 不在页面内自更新管理器自身；也不重启 DSH。
 - 不把网络失败、检查失败显示成“已是最新”。
 - 不修改客户端传入的任意路径：所有写操作按记录 id 在 Host 侧解析路径。
@@ -76,10 +76,10 @@ Host 半被打包成自包含 ESM（`yaml`、`semver`、`undici` 等 CJS 依赖�
 ### 3.2 打包
 
 ```bash
-npm pack     # 产出 dsh-extension-manager-0.1.0.tgz（标准安装包已放置在 dist/ 下）
+npm pack     # 产出 dsh-extension-manager-0.1.1.tgz
 ```
 
-标准安装包：运行 `npm pack` 生成 `dsh-extension-manager-0.1.0.tgz`；`package.json` 的 `files` 字段声明了 `lib`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`LICENSE`、`docs/architecture.md`、`docs/dialog-layout.md`。仓库已包含 MIT `LICENSE`（完整许可文本）。
+标准安装包：运行 `npm pack` 生成 `dsh-extension-manager-0.1.1.tgz`；`package.json` 的 `files` 字段声明了 `lib`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`LICENSE`、`docs/architecture.md`、`docs/dialog-layout.md`。仓库已包含 MIT `LICENSE`（完整许可文本）。
 
 ### 3.3 安装到 Profile
 
@@ -88,10 +88,10 @@ npm pack     # 产出 dsh-extension-manager-0.1.0.tgz（标准安装包已放置
 ```bash
 # 方式 A（推荐）：从 npm Registry 按名称安装
 dsh plugin --profile web add dsh-extension-manager
-# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.1.0
+# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.1.1
 
 # 方式 B：从打包产物安装
-dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.1.0.tgz"
+dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.1.1.tgz"
 
 # 方式 C：开发调试用 link 安装
 dsh plugin --profile web add "link:<项目绝对路径>"
@@ -145,7 +145,7 @@ Plugins：
 
 | 指标 | 口径 | 可点击筛选 |
 | --- | --- | --- |
-| 已安装 | 当前 Profile 声明的插件包（含未启用）；tooltip 另给其他 Profile 与 DSH 内置数量 | 否 |
+| 已安装 | 当前 Profile 声明的第三方插件包（含未启用）；tooltip 另给其他 Profile 数量 | 否 |
 | 已启用 | 配置中已选中、随 DSH 加载的插件包 | 是（已启用） |
 | 运行中 | 运行时已加载的插件行 / 插件行总数（tooltip 给出失败数） | 是（运行中） |
 | 可更新 | 检查后存在可用且与当前 DSH 兼容的更新 | 是（可更新） |
@@ -180,7 +180,7 @@ Skills：
 
 ### 5.3 列表
 
-记录按 **来源分组**（可折叠）展示，示例分组：`npm 安装`、`Git / GitHub 安装`、`本地链接（link）`、`本地路径`、`Profile 本地补丁`、`离线安装包`、`技能锁文件`、`文件系统扫描`、`DSH 内置`、`来源未知`。分组头显示数量与可更新数量。
+记录按 **来源分组**（可折叠）展示，示例分组：`npm 安装`、`Git / GitHub 安装`、`本地链接（link）`、`本地路径`、`Profile 本地补丁`、`离线安装包`、`技能锁文件`、`文件系统扫描`、`来源未知`。分组头显示数量与可更新数量。DSH 内置组件不在本页展示。
 
 每行包含：
 
@@ -223,10 +223,10 @@ Skills：
 2. Host 先 **只生成计划、不改动任何东西**（`POST /update-plan`），弹窗展示：
    - **将更新 N 项**（批量模式下只含可安全自动完成的项）；
    - **需要逐项确认，已跳过 N 项**（批量模式下被跳过的、带确认要求的项）；
-   - **已排除 N 项**（附排除原因，例如“管理器自身不参与自动更新”“随 DSH 安装提供”“新版本与当前 DSH 不兼容”）；
+   - **已排除 N 项**（附排除原因，例如“管理器自身不参与自动更新”“新版本与当前 DSH 不兼容”）；
    - 每项的风险说明（备份/回滚、需要重启、覆盖本地修改、预发布、兼容性未知等）。
 3. 勾选确认与执行（已实现并在隔离环境验证）：
-   - 弹窗分为三块：`将自动更新 N 项`（批量）/`将更新 N 项`（单项/重试）；`需要确认，已跳过 N 项（可逐项更新）`（仅批量模式）；`已排除 N 项`（附原因，例如“管理器自身不参与自动更新”“随 DSH 安装提供”“新版本与当前 DSH 不兼容”）。
+   - 弹窗分为三块：`将自动更新 N 项`（批量）/`将更新 N 项`（单项/重试）；`需要确认，已跳过 N 项（可逐项更新）`（仅批量模式）；`已排除 N 项`（附原因，例如“管理器自身不参与自动更新”“新版本与当前 DSH 不兼容”）。
    - **单项/重试模式**：`eligible` 或 `requiresConfirmation` 的项都会进入待更新列表；涉及本地修改或风险时必须勾选确认框（文案随风险变化：「我已了解上述风险，确认继续这次更新。」或「…并同意在需要时覆盖本地修改后继续。」），提交时按需携带 `overwriteLocalModifications: true`。
    - **批量模式**：只自动执行可安全更新的项（`eligible && !requiresConfirmation`）；`requiresConfirmation` 项列出但跳过，可关闭弹窗后在列表里逐项更新。
    - Host 侧 `/update`：`confirmed: true` 是硬门槛；**单项计划**中的 `requiresConfirmation` 项可执行（执行器 PREFLIGHT 再复核，本地修改仍要求 `overwriteLocalModifications: true`）；**批量**只执行 `eligible` 项，带 `overwriteLocalModifications: true` 时才放行确认项；同一时间只允许一个更新任务（并发第二个请求返回 `409 update-busy`）。
@@ -473,7 +473,7 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 
 以下是当前版本的真实边界（不是“TODO 待实现”，而是已确认的行为）：
 
-1. 随 DSH 安装提供的组件与官方内置组件只读展示，随 DSH 发行版更新。
+1. 随 DSH 安装提供的组件不在本页展示、统计或更新，由 DSH 左侧导航的 **Built-in plugins** 页面管理，并随 DSH 发行版更新。
 2. 其他 Profile 的插件只读展示（已用隔离环境的 `alt` Profile 验收：只读记录不可更新、同名物理安装不重复计数并带 `alsoInProfiles` 提示）。
 3. Skills 没有逐技能启停（`canToggle: false` 并给出原因）；页面只展示真实状态。
 4. 插件自动更新：npm Registry 来源可批量自动更新；Git 来源只支持**单项确认更新**（批量默认跳过，且需要确认覆盖本地修改）；本地 link / 本地路径 / tarball 来源需要手动更新。
@@ -507,7 +507,7 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 | 检查结果大量 `network-error` | 网络不可达或代理配置问题；可在诊断中查看 Registry/代理；配置 `HTTPS_PROXY`/`NO_PROXY`；私有 registry 不会被回退到公共源 |
 | `incompatible-update` | 目标版本声明了与当前 DSH 不兼容的 `engines.dsh`/peer 依赖；升级 DSH 或等待兼容版本，页面不会允许自动更新 |
 | `prerelease-only` | 只有预发布版本有更新；默认不进入安全批量更新，需要逐项确认 |
-| 更新按钮禁用 | 悬停可看原因：没有检查过、来源不支持自动更新、管理器自身、随 DSH 安装、本地修改未确认等 |
+| 更新按钮禁用 | 悬停可看原因：没有检查过、来源不支持自动更新、管理器自身、本地修改未确认等 |
 | 更新失败并要求人工恢复 | 查看任务面板与更新历史，备份在 `$DSH_HOME/extension-manager/backups/<txid>/`，按 §7 手工恢复；日志 `logs/manager.log` |
 | GitHub 检查提示限流 | 匿名 GitHub API 每小时 60 次；设置 `GITHUB_TOKEN`/`GH_TOKEN` 环境变量后重启 DSH |
 | Skills 显示“未托管” | 该目录（如 `~/.codex/skills`）不属于 DSH 读取的根，管理器不会修改它 |

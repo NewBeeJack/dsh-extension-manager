@@ -15,7 +15,7 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 ## Features
 
 - **One page, two inventories.** A segmented **Plugins / Skills** control, five-cell stats, source groups, search, status/source filters, sorting, workspace-aware Skills scanning, details dialogs and per-record update history.
-- **Plugins**: installed bundles, the Loader rows they contribute, runtime loaded/failed state, install spec/version/provenance, and read-only views of other readable profiles.
+- **Plugins**: installed third-party bundles, the Loader rows they contribute, runtime loaded/failed state, install spec/version/provenance, and read-only views of other readable profiles. DSH-shipped components are intentionally excluded — DSH's own **Built-in plugins** page manages them.
 - **Skills**: physical copies vs. runtime-visible skills, same-name shadowing, unmanaged roots, invocation policy, provenance and local-modification state.
 - **Update checks**: npm registry lookup with private-registry isolation and DSH-compatibility evaluation; git installs through `git ls-remote`; Skills through GitHub trees API and `.skill-lock.json` folder hashes. Failures and rate limits are reported, never rendered as “up to date”.
 - **Safe updates**: plan → confirm → verified backup → download/stage → install → read-back validation; failures roll back automatically. One update at a time (concurrent requests get `409 update-busy`), durable history and backup retention.
@@ -42,18 +42,18 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 ```bash
 dsh plugin --profile web add dsh-extension-manager
-# pin a version: dsh plugin --profile web add dsh-extension-manager@0.1.0
+# pin a version: dsh plugin --profile web add dsh-extension-manager@0.1.1
 ```
 
 The npm package name also works directly in DSH's **Plugins → Add plugin** dialog. Then enable the bundle and restart DSH as described below.
 
 ### From a release tarball
 
-1. Download `dsh-extension-manager-0.1.0.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
+1. Download `dsh-extension-manager-0.1.1.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
 2. Install it into a DSH profile (example: `web`):
 
    ```bash
-   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.1.0.tgz"
+   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.1.1.tgz"
    ```
 
 3. Enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI.
@@ -65,7 +65,7 @@ The npm package name also works directly in DSH's **Plugins → Add plugin** dia
 npm ci
 npm run build          # lib/index.js (Host ESM) + lib/client.js (Web client)
 npm test               # 98 unit tests
-npm pack               # dsh-extension-manager-0.1.0.tgz
+npm pack               # dsh-extension-manager-0.1.1.tgz
 ```
 
 Then install the packed tarball as above. For iterative development use `dsh plugin --profile web add "link:<path-to-checkout>"` and rebuild; the client bundle hot-swaps and `node scripts/dev/reload-host.mjs` can trigger a Host recomposition.
@@ -89,12 +89,12 @@ failures: FAILED → RECOVERY → RECOVERED / RECOVERY_REQUIRED
 - The install directory plus profile manifests (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `cordis.patch.yml`, `compatibility.json`) are hash-verified before any destructive step.
 - Validation reads `listBundles()` back and checks the lockfile commit; a zero exit code alone is not success.
 - Backups live under `$DSH_HOME/extension-manager/backups/<txid>/`; the newest 20 transactions are kept (open transactions are never pruned). Logs are JSON Lines with credential masking.
-- The manager never updates itself, never updates DSH-shipped bundles, never restarts DSH, and never writes to other profiles.
+- The manager never updates itself, never restarts DSH, and never writes to other profiles. DSH-shipped components are not listed or updated here; use DSH's **Built-in plugins** page for those.
 
 ## Compatibility and limitations
 
 - Baseline: **DSH 0.2.1-rc.2**. Uses `ctx.pluginManager`, `ctx.skills`, `ctx.webServer`, `profileContext`, `ctx.connection.admit`, optional `loader`/`configEditor`/`workspaceRegistry`/`hmr`.
-- Other profiles are read-only; DSH-shipped components follow the DSH release.
+- Other profiles are read-only. DSH-shipped components are excluded from this page and follow the DSH release (manage them in **Built-in plugins**).
 - Git-installed plugin updates are single-item, explicitly confirmed, and cannot fully roll back install-script side effects.
 - Skills auto-update supports GitHub-backed directory skills only; flat-file skills and directories containing symlinks are refused.
 - No per-skill enable/disable (DSH has no such mechanism), no in-page self-update, no DSH restart from the page, no “cancel running update” button.

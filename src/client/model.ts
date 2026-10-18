@@ -628,7 +628,7 @@ export function pluginStatCells(stats: PluginStats): StatCell[] {
       key: 'installed',
       label: '已安装',
       value: stats.bundlesInstalled,
-      hint: `当前 Profile 中声明的插件包（含未启用）。其他 Profile ${String(stats.bundlesOtherProfiles)} 个，DSH 内置 ${String(stats.bundlesOfficial)} 个。`,
+      hint: `当前 Profile 中声明的插件包（含未启用）。其他 Profile ${String(stats.bundlesOtherProfiles)} 个；DSH 内置组件由 DSH 自带的 Built-in plugins 页面管理。`,
     },
     {
       key: 'enabled',

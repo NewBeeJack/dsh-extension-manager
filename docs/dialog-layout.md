@@ -1,7 +1,7 @@
 # Dialog 布局规范与验收记录
 
 > 适用范围：Extension Manager 自有弹窗（更新确认、更新计划/进度/失败、诊断信息、扩展详情）。
-> 基线版本：DSH 0.2.1-rc.2，`dsh-extension-manager@0.1.0`。
+> 基线版本：DSH 0.2.1-rc.2，`dsh-extension-manager@0.1.1`。
 > 本文记录布局契约、修复根因与可重复的量化验收方法。
 
 ## 1. 布局契约
