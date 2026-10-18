@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [0.1.0] — 2026-10-18
 
-Initial public release, targeting DSH 0.2.1-rc.2.
+Initial public release, targeting DSH 0.2.1-rc.2. Published on npm as [`dsh-extension-manager`](https://www.npmjs.com/package/dsh-extension-manager).
 
 ### Added
 

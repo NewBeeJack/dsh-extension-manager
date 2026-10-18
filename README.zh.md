@@ -86,10 +86,14 @@ npm pack     # 产出 dsh-extension-manager-0.1.0.tgz（标准安装包已放置
 以 `web` Profile 为例（`<绝对路径>` 换成你自己的路径）：
 
 ```bash
-# 方式 A：从打包产物安装
+# 方式 A（推荐）：从 npm Registry 按名称安装
+dsh plugin --profile web add dsh-extension-manager
+# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.1.0
+
+# 方式 B：从打包产物安装
 dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.1.0.tgz"
 
-# 方式 B：开发调试用 link 安装（开发阶段使用；正式验收已改为 file: 本地 tarball）
+# 方式 C：开发调试用 link 安装
 dsh plugin --profile web add "link:<项目绝对路径>"
 ```
 

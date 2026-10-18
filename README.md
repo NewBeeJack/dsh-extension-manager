@@ -1,6 +1,7 @@
 # DSH Extension Manager
 
 [![CI](https://github.com/NewBeeJack/dsh-extension-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/NewBeeJack/dsh-extension-manager/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/dsh-extension-manager.svg)](https://www.npmjs.com/package/dsh-extension-manager)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-5b6ee1)](https://github.com/deepseek-ai/deepseek-harness)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.19-339933)](package.json)
@@ -37,7 +38,16 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 ## Installation
 
-### From a release tarball (recommended)
+### From npm registry (easiest)
+
+```bash
+dsh plugin --profile web add dsh-extension-manager
+# pin a version: dsh plugin --profile web add dsh-extension-manager@0.1.0
+```
+
+The npm package name also works directly in DSH's **Plugins → Add plugin** dialog. Then enable the bundle and restart DSH as described below.
+
+### From a release tarball
 
 1. Download `dsh-extension-manager-0.1.0.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
 2. Install it into a DSH profile (example: `web`):
