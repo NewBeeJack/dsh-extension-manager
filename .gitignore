@@ -1,0 +1,12 @@
+node_modules/
+lib/
+*.log
+.tmp/
+out/
+out-test/
+dist/
+*.tgz
+.chrome-profile*/
+coverage/
+scripts/dev/cookie*.json
+scripts/dev/out*/

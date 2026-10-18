@@ -1,0 +1,9 @@
+# dsh-extension-manager bundle patch
+#
+# Inserted as one Loader row when a profile lists `dsh-extension-manager` in
+# `dsh.profile.bundles`. The same package also declares `dsh.client`, so the
+# Web client bundle at `exports["./client"]` is served and mounted by
+# @deepseek-ai/dsh-client-modules.
+- insert:
+    - id: extension-manager
+      name: 'dsh-extension-manager'
