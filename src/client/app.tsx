@@ -467,7 +467,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const skillCollisions = useMemo<ReadonlyMap<string, number>>(() => {
     const counts = new Map<string, number>()
     for (const record of skillRecords) {
-      if (!isSkillCopy(record) || unmanagedRoots.has(record.rootKey)) continue
+      if (!isSkillCopy(record) || unmanagedRoots.has(record.rootKey) || record.rootNote !== undefined) continue
       const name = recordName(record)
       counts.set(name, (counts.get(name) ?? 0) + 1)
     }

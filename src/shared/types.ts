@@ -272,6 +272,8 @@ export interface SkillRecord {
   rootKey: string
   /** Rank the DSH filesystem provider uses for this root. */
   rootRank?: number
+  /** Root-level note (e.g. a registered workspace that is not active in this run). */
+  rootNote?: string
   /** Physical form. */
   layout: 'directory' | 'flat-file'
   paths: PathInfo

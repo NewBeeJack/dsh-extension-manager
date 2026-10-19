@@ -1079,6 +1079,7 @@ export class SkillsInventoryImpl implements SkillsInventory {
         scope: copy.root.managed ? 'current-profile' : 'filesystem',
         rootKey: copy.root.key,
         ...(copy.root.rank === undefined ? {} : { rootRank: copy.root.rank }),
+        ...(copy.root.note === undefined ? {} : { rootNote: copy.root.note }),
         layout: copy.discovered.layout,
         paths,
         ...(provider === undefined ? {} : { provider }),

@@ -85,6 +85,7 @@ function RecordIcon({ record }: { record: ExtensionRecord }): ReactNode {
 /** Runtime availability sentence shown at the end of the metadata line. */
 function runtimeNote(record: ExtensionRecord, unmanagedRoots: ReadonlySet<string>): string | undefined {
   if (isSkillCopy(record)) {
+    if (record.rootNote !== undefined) return '工作区未激活（不参与当前作用域）'
     if (record.runtime.catalogIncomplete === true) return '当前作用域未验证'
     if (unmanagedRoots.has(record.rootKey)) return '未托管根目录'
     if (record.effective === false) return record.shadowedBy === undefined ? '未生效' : '被同名副本覆盖'

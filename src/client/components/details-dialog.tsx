@@ -387,8 +387,8 @@ function RecordSections({ record, allRecords, unmanagedRoots }: { record: Extens
           {isSkillCopy(record) && allRecords !== undefined && (() => {
             const siblings = allRecords.filter(entry => isSkillCopy(entry) && recordName(entry) === name)
             if (siblings.length < 2) return null
-            const competing = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && !unmanagedRoots.has(entry.rootKey))
-            const nonCompeting = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && unmanagedRoots.has(entry.rootKey))
+            const competing = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && entry.rootNote === undefined && !unmanagedRoots.has(entry.rootKey))
+            const nonCompeting = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && (entry.rootNote !== undefined || unmanagedRoots.has(entry.rootKey)))
             return (
               <>
                 {competing.length > 1 ? (
@@ -429,7 +429,7 @@ function RecordSections({ record, allRecords, unmanagedRoots }: { record: Extens
                           <br />
                           {entry.paths.installDir ?? entry.paths.manifestPath ?? '路径未知'}
                           <br />
-                          未托管根目录
+                          {entry.rootNote ?? '未托管根目录'}
                         </li>
                       ))}
                     </ul>
