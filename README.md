@@ -26,6 +26,13 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 | --- | --- |
 | ![Skills page](docs/screenshots/skills.png) | ![Diagnostics dialog](docs/screenshots/diagnostics.png) |
 
+## What's new in 0.2.0
+
+- **Compact UI**: three primary stats (installed / updatable / abnormal) with a “统计详情” disclosure, one-row toolbar with a collapsible filter panel, tighter three-line cards and a “当前匹配 N 项” readout.
+- **Unified update coordination**: one `UpdateCoordinator` owns task admission, single-flight updates, structured task logging, cancellation requests and a durable `tasks.json` journal; plugin and skill update implementations remain independent.
+- **Skills scope/conflicts**: same-name physical copies carry a “同名副本 N” badge; the details dialog lists each candidate's root, rank, provider, scope, real path and coverage state; incomplete runtime catalogs are shown as “当前作用域未验证”.
+- **Faster lists**: per-scope inventory cache with stale-while-revalidate and request epochs, persisted filters/search/collapsed groups, and on-demand rendering above 100 visible rows. Keys `/` (focus search) and Escape (close filters / clear search) are scoped to the page.
+
 ## Requirements
 
 | Item | Requirement |
@@ -42,18 +49,18 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 ```bash
 dsh plugin --profile web add dsh-extension-manager
-# pin a version: dsh plugin --profile web add dsh-extension-manager@0.1.1
+# pin a version: dsh plugin --profile web add dsh-extension-manager@0.2.0
 ```
 
 The npm package name also works directly in DSH's **Plugins → Add plugin** dialog. Then enable the bundle and restart DSH as described below.
 
 ### From a release tarball
 
-1. Download `dsh-extension-manager-0.1.1.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
+1. Download `dsh-extension-manager-0.2.0.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
 2. Install it into a DSH profile (example: `web`):
 
    ```bash
-   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.1.1.tgz"
+   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.2.0.tgz"
    ```
 
 3. Enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI.
@@ -64,8 +71,8 @@ The npm package name also works directly in DSH's **Plugins → Add plugin** dia
 ```bash
 npm ci
 npm run build          # lib/index.js (Host ESM) + lib/client.js (Web client)
-npm test               # 98 unit tests
-npm pack               # dsh-extension-manager-0.1.1.tgz
+npm test               # 102 unit tests
+npm pack               # dsh-extension-manager-0.2.0.tgz
 ```
 
 Then install the packed tarball as above. For iterative development use `dsh plugin --profile web add "link:<path-to-checkout>"` and rebuild; the client bundle hot-swaps and `node scripts/dev/reload-host.mjs` can trigger a Host recomposition.
@@ -111,7 +118,7 @@ npm test
 npm run build
 ```
 
-- `test/*.test.ts` — 98 unit tests (native Node TS runner, no build step): registry/git/lockfile parsing, compatibility, transaction state machine, backups, archive extraction, rollback and crash recovery.
+- `test/*.test.ts` — 102 unit tests (native Node TS runner, no build step): registry/git/lockfile parsing, compatibility, transaction state machine, backups, archive extraction, rollback and crash recovery.
 - **Isolated acceptance environment** (never touches your real `~/.dsh` / `~/.agents`):
 
   ```bash
@@ -131,6 +138,20 @@ npm run build
 
   It opens every dialog, asserts 24px/24px top/bottom spacing, no footer overlap, scrollable body with a readable last line, multiple viewport sizes and dark mode. See [docs/dialog-layout.md](docs/dialog-layout.md).
 
+## Performance snapshot (local, V5)
+
+The list switches to windowed rendering above 100 visible rows, using the preview data set (`?emFixture=1&emRows=N`) on the local machine:
+
+| Rows in inventory | Mounted `.em-row` | Total DOM nodes | Manager open | Search |
+| --- | --- | --- | --- | --- |
+| 21 | 21 | ~1.4k | 252 ms | 4 ms |
+| 61 | 61 | ~2.5k | 237 ms | 6 ms |
+| 211 | 8 | ~1.0k | 246 ms | 6 ms |
+| 511 | 8 | ~1.0k | 232 ms | 8 ms |
+| 1011 | 8 | ~1.0k | 236 ms | 8 ms |
+
+These numbers are from Edge headless against the isolated demo profile; the full data set stays in memory for filtering, counting and bulk updates. They are a snapshot, not a guarantee for other machines.
+
 ## Project layout
 
 ```
@@ -148,6 +169,7 @@ docs/            Architecture, dialog-layout contract, test/acceptance summary
 - [docs/architecture.md](docs/architecture.md) — Host/client design, data model, transaction state machine, security model.
 - [docs/dialog-layout.md](docs/dialog-layout.md) — dialog spacing contract and automated visual regression.
 - [docs/testing.md](docs/testing.md) — test suites, isolated acceptance scenarios and verification results.
+- [docs/v5-optimization.md](docs/v5-optimization.md) — the local V5 optimization record (UI, coordinator, Skills scope, cache/virtualization, measurements).
 
 ## Contributing
 

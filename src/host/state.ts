@@ -101,6 +101,7 @@ export interface ManagerPaths {
   stagingDir: string
   stateFile: string
   logFile: string
+  tasksFile: string
 }
 
 /** Resolve manager paths from the running profile. */
@@ -116,6 +117,7 @@ export function managerPaths(ctx: Context): ManagerPaths | undefined {
     stagingDir: join(stateDir, 'staging'),
     stateFile: join(stateDir, 'state.json'),
     logFile: join(stateDir, 'logs', 'manager.log'),
+    tasksFile: join(stateDir, 'tasks.json'),
   }
 }
 

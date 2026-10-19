@@ -507,12 +507,31 @@ export interface HistoryEntry {
   transactionId?: string
 }
 
+/** High-level task phase; status stays for old clients, phase adds lifecycle detail. */
+export type TaskPhase =
+  | 'queued'
+  | 'preflight'
+  | 'backup'
+  | 'download'
+  | 'stage'
+  | 'install'
+  | 'validate'
+  | 'pending_restart'
+  | 'recovering'
+  | 'recovery_required'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
 /** Async task state returned by the Host. */
 export interface TaskState {
   id: string
   kind: 'check' | 'update' | 'batch-update' | 'refresh' | 'source-associate' | 'self-update'
   scope: 'plugins' | 'skills' | 'all'
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+  /** Optional lifecycle phase (new clients); `status` remains authoritative for old ones. */
+  phase?: TaskPhase
   startedAt: string
   finishedAt?: string
   total: number

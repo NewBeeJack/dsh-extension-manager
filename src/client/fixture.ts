@@ -855,9 +855,44 @@ function ensureState(): FixtureState {
   return state
 }
 
+/** Optional synthetic rows for local virtualization benchmarks (`?emRows=N`). */
+function syntheticRows(): PluginRowRecord[] {
+  if (typeof window === 'undefined') return []
+  const value = Number(new URLSearchParams(window.location.search).get('emRows') ?? '0')
+  if (!Number.isFinite(value) || value <= 0) return []
+  const count = Math.min(2000, Math.floor(value))
+  return Array.from({ length: count }, (_, index) => {
+    const id = `plugin-row:web:synthetic-${String(index)}`
+    return {
+      id,
+      kind: 'plugin-row',
+      name: `synthetic-plugin-${String(index)}`,
+      displayName: `合成测试插件 ${String(index)}`,
+      description: '仅用于本地列表性能测试的预览记录，不对应真实安装。',
+      version: { status: 'no-source', reason: '预览数据没有独立版本' },
+      source: { kind: 'unknown', trust: 'unknown', label: '预览数据', detail: '本地示例' },
+      runtime: { installed: true, enabled: true, loaded: true, fiberPhase: 'active' },
+      scope: 'current-profile',
+      profile: 'web',
+      paths: {},
+      row: {
+        entryId: `synthetic-${String(index)}`,
+        moduleName: `synthetic-plugin-${String(index)}`,
+        enabled: true,
+        loaded: true,
+        fiberPhase: 'active',
+      },
+      localModification: { state: 'unknown' },
+      diagnostics: [],
+      actions: { canCheck: false, canUpdate: false, updateBlockedReason: '预览数据不能更新' },
+    } satisfies PluginRowRecord
+  })
+}
+
 /** Fresh plugin payload object (base arrays are mutated by simulated tasks). */
 function pluginsSnapshot(): PluginInventoryPayload {
   const current = ensureState()
+  const rows = [...current.rows, ...syntheticRows()]
   return {
     profile: { name: 'web', dir: PROFILE_DIR, dshHome: DSH_HOME, runtimeVersion: '0.2.1-rc.2' },
     profiles: [
@@ -865,8 +900,8 @@ function pluginsSnapshot(): PluginInventoryPayload {
       { name: 'tui', dir: `${DSH_HOME}\\profiles\\tui`, readable: true, current: false, bundles: 2 },
     ],
     bundles: [...current.bundles],
-    rows: [...current.rows],
-    stats: pluginStatsOf(current.bundles, current.rows),
+    rows,
+    stats: pluginStatsOf(current.bundles, rows),
     reconciliation: pluginReconciliation(),
     check: { ...current.pluginsCheck },
   }

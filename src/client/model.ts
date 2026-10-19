@@ -621,85 +621,66 @@ export interface StatCell {
   filter?: StatusFilter
 }
 
-/** Five accounting cells for the Plugins page. */
+/** Three primary accounting cells for the Plugins page. */
 export function pluginStatCells(stats: PluginStats): StatCell[] {
   return [
     {
       key: 'installed',
       label: '已安装',
       value: stats.bundlesInstalled,
-      hint: `当前 Profile 中声明的插件包（含未启用）。其他 Profile ${String(stats.bundlesOtherProfiles)} 个；DSH 内置组件由 DSH 自带的 Built-in plugins 页面管理。`,
-    },
-    {
-      key: 'enabled',
-      label: '已启用',
-      value: stats.bundlesEnabled,
-      hint: '配置中已选中、随 DSH 加载的插件包',
-      filter: 'enabled',
-    },
-    {
-      key: 'loaded',
-      label: '运行中',
-      value: stats.rowsLoaded,
-      valueText: `${String(stats.rowsLoaded)}/${String(stats.rowsTotal)}`,
-      hint: `运行时共 ${String(stats.rowsTotal)} 个插件行，${String(stats.rowsLoaded)} 个已加载；${String(stats.rowsFailed)} 个加载失败。`,
-      filter: 'loaded',
+      hint: `当前管理范围内可确认的独立插件包（不含运行时行与 DSH 内置组件）。已启用 ${String(stats.bundlesEnabled)} 个；运行中插件行 ${String(stats.rowsLoaded)}/${String(stats.rowsTotal)}；其他 Profile ${String(stats.bundlesOtherProfiles)} 个。`,
     },
     {
       key: 'updates',
       label: '可更新',
       value: stats.updatesAvailable,
-      hint: '存在可用且与当前 DSH 兼容的更新（需先检查）',
+      hint: '已确认存在兼容、可安全执行的更新目标；未检查、网络错误、来源未知与仅不兼容更新不计入。',
       filter: 'updatable',
     },
     {
       key: 'abnormal',
       label: '异常',
       value: stats.abnormal,
-      hint: '加载失败、缺失安装、检查失败或带有错误诊断的记录',
+      hint: '加载失败、安装缺失、检查失败或带有错误诊断的记录；没有来源或尚未检查不算异常。',
       filter: 'abnormal',
     },
   ]
 }
 
-/** Five accounting cells for the Skills page. */
+/** Secondary facts kept out of the three-cell strip but still inspectable. */
+export function pluginStatsSummary(stats: PluginStats): string {
+  return `已启用 ${String(stats.bundlesEnabled)} · 运行中插件行 ${String(stats.rowsLoaded)}/${String(stats.rowsTotal)} · 加载失败 ${String(stats.rowsFailed)} · 其他 Profile ${String(stats.bundlesOtherProfiles)}`
+}
+
+/** Three primary accounting cells for the Skills page. */
 export function skillStatCells(stats: SkillStats): StatCell[] {
   return [
     {
-      key: 'physical',
-      label: '物理副本',
+      key: 'installed',
+      label: '已安装',
       value: stats.physical,
-      hint: `扫描到的技能目录/文件总数；其中 ${String(stats.notManaged)} 份位于未被 DSH 使用的根目录。`,
-    },
-    {
-      key: 'runtime',
-      label: '运行时生效',
-      value: stats.runtime,
-      hint: `运行时技能目录中可见的技能数；物理副本中 ${String(stats.effective)} 份生效。`,
-      filter: 'effective',
-    },
-    {
-      key: 'shadowed',
-      label: '已覆盖',
-      value: stats.shadowed,
-      hint: '被同名、更高优先级副本覆盖而未生效的物理副本',
-      filter: 'shadowed',
+      hint: `当前管理范围内的物理技能副本（含被覆盖与未托管副本）；运行时可见 ${String(stats.runtime)} 个、当前作用域生效 ${String(stats.effective)} 个。虚拟 Provider 技能不是本机安装，不计入此格。`,
     },
     {
       key: 'updates',
       label: '可更新',
       value: stats.updatesAvailable,
-      hint: '存在可用且兼容的远程更新（需先检查）',
+      hint: '已确认存在兼容、可安全执行的远程更新；未检查、网络错误、来源未知与本地修改冲突不计入。',
       filter: 'updatable',
     },
     {
       key: 'abnormal',
       label: '异常',
       value: stats.abnormal,
-      hint: '解析失败、检查失败或带有错误诊断的技能',
+      hint: '解析失败、Provider 读取失败、检查失败或带有错误诊断的技能；同名覆盖本身不算异常。',
       filter: 'abnormal',
     },
   ]
+}
+
+/** Secondary facts kept out of the three-cell strip but still inspectable. */
+export function skillStatsSummary(stats: SkillStats): string {
+  return `运行时可见 ${String(stats.runtime)} · 当前作用域生效 ${String(stats.effective)} · 被覆盖 ${String(stats.shadowed)} · 未托管 ${String(stats.notManaged)}`
 }
 
 /* ------------------------------------------------------------------ *

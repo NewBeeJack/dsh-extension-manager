@@ -15,7 +15,7 @@ import {
   Modal,
   Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { HistoryEntry } from '../../shared/types'
+import type { HistoryEntry, SkillRecord } from '../../shared/types'
 import {
   checkBlockedReason,
   deriveSignals,
@@ -65,6 +65,10 @@ export interface DetailsDialogProps {
   onUpdate: (record: ExtensionRecord) => void
   onOpenDiagnostics: () => void
   loadHistory: () => Promise<HistoryEntry[]>
+  /** All records of the current scope, used to explain same-name skill copies. */
+  allRecords?: readonly ExtensionRecord[]
+  /** Unmanaged skill roots do not compete with managed copies. */
+  unmanagedRoots?: ReadonlySet<string>
 }
 
 const CHANNEL_LABELS: Record<NonNullable<ExtensionRecord['version']['channel']>, string> = {
@@ -88,6 +92,7 @@ const LOCAL_MODIFICATION_LABELS: Record<ExtensionRecord['localModification']['st
 }
 
 const DIAGNOSTIC_TONES = { info: 'info', warning: 'warning', error: 'danger' } as const
+const EMPTY_UNMANAGED_ROOTS: ReadonlySet<string> = new Set()
 
 type HistoryState =
   | { status: 'loading' }
@@ -155,8 +160,9 @@ function HistoryBlock({ record, state, onRetry }: {
 }
 
 /** Render the record-specific sections. */
-function RecordSections({ record }: { record: ExtensionRecord }): ReactNode {
+function RecordSections({ record, allRecords, unmanagedRoots }: { record: ExtensionRecord; allRecords: readonly ExtensionRecord[] | undefined; unmanagedRoots: ReadonlySet<string> }): ReactNode {
   const signals = deriveSignals(record)
+  const name = recordName(record)
   const version = record.version
   const source = record.source
   const url = httpsUrl(source.url)
@@ -357,7 +363,13 @@ function RecordSections({ record }: { record: ExtensionRecord }): ReactNode {
                 : null}
               <Fact label="物理形态">{LAYOUT_LABELS[record.layout]}</Fact>
               {optionalFact('Provider', record.provider)}
-              <Fact label="运行时生效">{signals.effective ? '是' : '否'}</Fact>
+              <Fact label="运行时生效">
+                {signals.effective ? '是' : '否'}
+                {record.runtime.catalogIncomplete === true ? '（当前作用域未验证：运行时清单不完整）' : ''}
+              </Fact>
+              <Fact label="作用域验证">
+                {record.runtime.catalogIncomplete === true ? '未验证' : '运行时观察'}
+              </Fact>
               {isSkillCopy(record) && record.shadowedBy !== undefined ? <PathFact label="被此副本覆盖" path={record.shadowedBy} /> : null}
               {isSkillCopy(record) && record.overriddenCopies !== undefined && record.overriddenCopies.length > 0
                 ? optionalFact('覆盖的副本', (
@@ -372,6 +384,60 @@ function RecordSections({ record }: { record: ExtensionRecord }): ReactNode {
               {optionalFact('技能简介', recordDescription(record))}
             </FactsList>
           </DetailSection>
+          {isSkillCopy(record) && allRecords !== undefined && (() => {
+            const siblings = allRecords.filter(entry => isSkillCopy(entry) && recordName(entry) === name)
+            if (siblings.length < 2) return null
+            const competing = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && !unmanagedRoots.has(entry.rootKey))
+            const nonCompeting = siblings.filter((entry): entry is SkillRecord => isSkillCopy(entry) && unmanagedRoots.has(entry.rootKey))
+            return (
+              <>
+                {competing.length > 1 ? (
+                  <DetailSection title={`同名副本（${String(competing.length)}）`}>
+                    <p className="em-detailMuted">同名物理副本可能位于不同根、Provider 或作用域；这里按当前清单展示真实关系，不修改任何技能文件。</p>
+                    <ul className="em-fileList">
+                      {competing.map(entry => {
+                        if (!isSkillCopy(entry)) return null
+                        const effective = entry.effective === true
+                        const coverage = effective
+                          ? '当前生效'
+                          : entry.runtime.catalogIncomplete === true
+                            ? '当前作用域未验证'
+                            : entry.shadowedBy === undefined ? '未生效' : `被同名副本覆盖：${entry.shadowedBy}`
+                        return (
+                          <li key={entry.id} className="em-mono">
+                            {effective ? '生效' : '候选'} · {entry.rootKey}
+                            {entry.rootRank === undefined ? '' : ` · rank ${String(entry.rootRank)}`}
+                            {entry.provider === undefined ? '' : ` · provider ${entry.provider}`}
+                            {' · '}{SCOPE_LABELS[entry.scope]}
+                            <br />
+                            {entry.paths.installDir ?? entry.paths.manifestPath ?? '路径未知'}
+                            <br />
+                            {coverage}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </DetailSection>
+                ) : null}
+                {nonCompeting.length > 0 ? (
+                  <DetailSection title={`同名但不竞争（${String(nonCompeting.length)}）`}>
+                    <p className="em-detailMuted">这些副本位于未托管根，DSH 当前不把它们作为竞争者；不计入同名副本数量，也不会被扩展管理器修改。</p>
+                    <ul className="em-fileList">
+                      {nonCompeting.map(entry => (
+                        <li key={entry.id} className="em-mono">
+                          {entry.rootKey} · {entry.provider ?? 'provider 未知'}
+                          <br />
+                          {entry.paths.installDir ?? entry.paths.manifestPath ?? '路径未知'}
+                          <br />
+                          未托管根目录
+                        </li>
+                      ))}
+                    </ul>
+                  </DetailSection>
+                ) : null}
+              </>
+            )
+          })()}
           <DetailSection title="更新来源">
             <FactsList>
               <Fact label="来源类型">{SOURCE_KIND_LABELS[source.kind]}</Fact>
@@ -423,7 +489,7 @@ function RecordSections({ record }: { record: ExtensionRecord }): ReactNode {
 
 /** Render the details dialog (headless modal for a fixed header + scrolling body). */
 export function DetailsDialog({
-  record, busy, checking, preview, onClose, onCheck, onUpdate, onOpenDiagnostics, loadHistory,
+  record, busy, checking, preview, onClose, onCheck, onUpdate, onOpenDiagnostics, loadHistory, allRecords, unmanagedRoots,
 }: DetailsDialogProps): ReactNode {
   const [historyState, setHistoryState] = useState<HistoryState>({ status: 'loading' })
   const [historyNonce, setHistoryNonce] = useState(0)
@@ -491,7 +557,7 @@ export function DetailsDialog({
           </button>
         </header>
         <div className="em-detailBody">
-          <RecordSections record={record} />
+          <RecordSections record={record} allRecords={allRecords} unmanagedRoots={unmanagedRoots ?? EMPTY_UNMANAGED_ROOTS} />
           <DetailSection title="更新历史">
             <HistoryBlock record={record} state={historyState} onRetry={() => { setHistoryNonce(value => value + 1) }} />
           </DetailSection>

@@ -1,9 +1,10 @@
 /**
- * Toolbar above the list: search, refresh, diagnostics, source/status/range/
- * sort selectors and the two bulk operations (check all / update safe only).
+ * Toolbar above the list: one compact action row plus an optional filter panel.
  *
- * Every disabled control states why in its `title` and the single hint line
- * under the toolbar repeats the reason for the two bulk actions.
+ * The first row keeps only high-frequency actions (search, filters, refresh,
+ * check all, update all). Source/status/range/workspace/sort and diagnostics
+ * live in the collapsible panel. Every disabled control states why, and the
+ * panel repeats the two bulk-action reasons.
  */
 import type { ReactNode } from 'react'
 import {
@@ -13,6 +14,7 @@ import {
   IconInspectOutlineRegular,
   IconRefreshOutlineRegular,
   IconSearchOutlineRegular,
+  IconSlidersTwoOutlineRegular,
   Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
@@ -44,6 +46,11 @@ export interface ToolbarProps {
     onChange: (id: string) => void
   } | undefined
   records: readonly ExtensionRecord[]
+  filtersOpen: boolean
+  onToggleFilters: () => void
+  matchedCount: number
+  totalCount: number
+  onClearFilters: () => void
   /** False while the first load is running or failed: bulk actions stay locked. */
   ready: boolean
   taskRunning: boolean
@@ -77,13 +84,18 @@ function rangeOptionsOf(options: readonly RangeOption[]): MenuSelectOption[] {
 
 /** Render the toolbar. */
 export function Toolbar({
-  scope, filters, onFiltersChange, sourceOptions, rangeOptions, workspaceSelector, records, ready,
-  taskRunning, refreshing, checking, onRefresh, onCheckAll, onUpdateAll, onOpenDiagnostics,
+  scope, filters, onFiltersChange, sourceOptions, rangeOptions, workspaceSelector, records,
+  filtersOpen, onToggleFilters, matchedCount, totalCount, onClearFilters,
+  ready, taskRunning, refreshing, checking, onRefresh, onCheckAll, onUpdateAll, onOpenDiagnostics,
 }: ToolbarProps): ReactNode {
   const checkable = records.filter(record => record.actions.canCheck).length
   const safeUpdates = records.filter(record => isSafeUpdate(record)).length
   const checked = records.filter(record => record.version.status !== 'unchecked').length
   const total = records.length
+  const activeFilterCount = (filters.query.trim() === '' ? 0 : 1)
+    + (filters.source === 'all' ? 0 : 1)
+    + (filters.status === 'all' ? 0 : 1)
+    + (filters.range === 'all' ? 0 : 1)
 
   const updateAllReason = !ready
     ? '清单尚未加载完成'
@@ -129,12 +141,23 @@ export function Toolbar({
           className="em-search"
           icon={<IconSearchOutlineRegular size={15} />}
           aria-label="搜索扩展"
-          placeholder="搜索名称、包名、来源或路径"
+          placeholder="搜索名称、来源或路径"
           value={filters.query}
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => { update({ query: event.currentTarget.value }) }}
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          icon={<IconSlidersTwoOutlineRegular size={14} />}
+          aria-expanded={filtersOpen}
+          title="展开来源、状态、范围与排序筛选"
+          onClick={onToggleFilters}
+        >
+          {activeFilterCount === 0 ? '筛选' : `筛选（${String(activeFilterCount)}）`}
+        </Button>
         <IconAction
           label="刷新清单"
           disabled={refreshReason !== undefined}
@@ -167,54 +190,74 @@ export function Toolbar({
           {safeUpdates > 0 ? `更新全部（${String(safeUpdates)}）` : '更新全部'}
         </Button>
       </div>
-      <div className={cx('em-toolRow', 'em-toolRowFilters')}>
-        <MenuSelect
-          label="来源"
-          value={filters.source}
-          options={sourceOptionsOf(sourceOptions)}
-          onChange={(id) => { update({ source: id }) }}
-        />
-        <MenuSelect
-          label="状态"
-          value={filters.status}
-          options={statusOptions(scope)}
-          onChange={(id) => { update({ status: id as RecordFilters['status'] }) }}
-        />
-        {scope === 'skills' && workspaceSelector !== undefined
-          ? (
+      {filtersOpen ? (
+        <div className="em-filterPanel">
+          <div className="em-filterPanelRow">
             <MenuSelect
-              label="工作区"
-              value={workspaceSelector.value}
-              options={workspaceSelector.options}
-              onChange={workspaceSelector.onChange}
+              label="来源"
+              value={filters.source}
+              options={sourceOptionsOf(sourceOptions)}
+              onChange={(id) => { update({ source: id }) }}
             />
-          )
-          : (
             <MenuSelect
-              label="范围"
-              value={filters.range}
-              options={rangeOptionsOf(rangeOptions)}
-              onChange={(id) => { update({ range: id }) }}
+              label="状态"
+              value={filters.status}
+              options={statusOptions(scope)}
+              onChange={(id) => { update({ status: id as RecordFilters['status'] }) }}
             />
-          )}
-        <MenuSelect
-          label="排序"
-          value={filters.sort}
-          options={SORT_OPTIONS.map(option => ({ id: option.value, label: option.label }))}
-          onChange={(id) => { update({ sort: id as RecordFilters['sort'] }) }}
-        />
-        <span className="em-toolSpacer" />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          icon={<IconInspectOutlineRegular size={14} />}
-          title="打开诊断信息：环境、探测结果与清单完整性"
-          onClick={onOpenDiagnostics}
-        >
-          诊断
-        </Button>
-      </div>
+            {scope === 'skills' && workspaceSelector !== undefined
+              ? (
+                <MenuSelect
+                  label="工作区"
+                  value={workspaceSelector.value}
+                  options={workspaceSelector.options}
+                  onChange={workspaceSelector.onChange}
+                />
+              )
+              : (
+                <MenuSelect
+                  label="范围"
+                  value={filters.range}
+                  options={rangeOptionsOf(rangeOptions)}
+                  onChange={(id) => { update({ range: id }) }}
+                />
+              )}
+            <MenuSelect
+              label="排序"
+              value={filters.sort}
+              options={SORT_OPTIONS.map(option => ({ id: option.value, label: option.label }))}
+              onChange={(id) => { update({ sort: id as RecordFilters['sort'] }) }}
+            />
+            <span className="em-toolSpacer" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={<IconInspectOutlineRegular size={14} />}
+              title="打开诊断信息：环境、探测结果与清单完整性"
+              onClick={onOpenDiagnostics}
+            >
+              诊断
+            </Button>
+          </div>
+          <div className="em-filterPanelFoot">
+            <span className="em-filterMatch">
+              {matchedCount === totalCount
+                ? `共 ${String(totalCount)} 条记录`
+                : `当前匹配 ${String(matchedCount)} 项 · 共 ${String(totalCount)} 条记录`}
+            </span>
+            <span className="em-toolSpacer" />
+            <button
+              type="button"
+              className="em-linkButton"
+              disabled={activeFilterCount === 0 && filters.sort === 'name'}
+              onClick={onClearFilters}
+            >
+              清除筛选
+            </button>
+          </div>
+        </div>
+      ) : null}
       {hint === undefined ? null : <p className="em-toolHint" role="status">{hint}</p>}
     </div>
   )

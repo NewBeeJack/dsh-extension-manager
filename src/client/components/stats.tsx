@@ -1,6 +1,7 @@
 /**
- * Statistics strip: five accounting cells whose numbers come straight from the
- * Host payload. The two cells that describe a filterable state are buttons.
+ * Statistics strip: three primary accounting cells (installed / updatable /
+ * abnormal). The two filterable state cells are buttons; low-frequency counts
+ * stay available through hints and the "统计详情" disclosure.
  */
 import type { ReactNode } from 'react'
 import { Tooltip, type TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,7 +14,7 @@ const VALUE_TONE: Partial<Record<string, TagTone>> = {
   abnormal: 'danger',
 }
 
-/** Render the five accounting cells. */
+/** Render the three primary accounting cells. */
 export function StatsBar({
   cells, activeStatus, onToggleFilter, loading,
 }: {

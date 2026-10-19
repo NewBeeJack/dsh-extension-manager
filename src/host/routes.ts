@@ -35,6 +35,7 @@ import {
 } from '../shared/api'
 import type { HostServices, UpdateManager } from './contracts'
 import type { UpdateCheckService } from './updates/checker'
+import { CoordinatorError, type UpdateCoordinator } from './updates/coordinator'
 import { managerPaths } from './state'
 import { errorText } from './logs'
 import { ownPackageDir, profileFacts, readEnvironment, readManagerVersion } from './env'
@@ -44,6 +45,7 @@ export interface RouterDeps {
   services: HostServices
   checks: UpdateCheckService
   updates: UpdateManager
+  coordinator: UpdateCoordinator
   /** Build the diagnostics/environment payload. */
   environment(): Promise<DiagnosticsResponse>
   version: string
@@ -224,20 +226,11 @@ async function probeDirectory(name: string, path: string): Promise<DiagnosticsRe
   }
 }
 
-/** Sentinel reserving the single update slot while a request plans. */
-const UPDATE_STARTING = '__update_starting__'
-
-/** Instance state that outlives one request. */
-interface RouterState {
-  activeUpdateTask: string | undefined
-}
-
 /**
  * Register the manager's route table.
  * @returns the disposer that removes the route registration.
  */
 export function registerRoutes(ctx: Context, deps: RouterDeps): () => void {
-  const state: RouterState = { activeUpdateTask: undefined }
   const log = deps.services.log
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const started = Date.now()
@@ -285,6 +278,17 @@ export function registerRoutes(ctx: Context, deps: RouterDeps): () => void {
         sendJson(res, 200, body)
         return
       }
+      if (method === 'POST' && segments[0] === 'task' && segments[1] !== undefined && segments[2] === 'cancel') {
+        const task = deps.coordinator.cancel(segments[1])
+        if (task === undefined) {
+          const body: TaskResponse = { ok: false, error: '任务不存在或已过期' }
+          sendJson(res, 404, body)
+          return
+        }
+        const body: TaskResponse = { ok: true, task, pending: task.status === 'queued' || task.status === 'running' }
+        sendJson(res, 200, body)
+        return
+      }
       if (method === 'GET' && segments[0] === 'task' && segments[1] !== undefined) {
         const task = deps.services.tasks.get(segments[1])
         if (task === undefined) {
@@ -321,7 +325,7 @@ export function registerRoutes(ctx: Context, deps: RouterDeps): () => void {
           throw new HttpError(400, 'invalid-scope', 'scope 必须是 plugins / skills / all')
         }
         const workspace = validateWorkspace(ctx, body.workspace)
-        const task = await deps.checks.start({
+        const task = await deps.coordinator.startCheck({
           scope: body.scope,
           ...(Array.isArray(body.ids) ? { ids: body.ids.filter((id): id is string => typeof id === 'string') } : {}),
           refresh: body.refresh === true,
@@ -347,65 +351,21 @@ export function registerRoutes(ctx: Context, deps: RouterDeps): () => void {
         const body = await readJson<UpdateRequest>(req)
         if (body.confirmed !== true) throw new HttpError(400, 'confirmation-required', '更新必须在用户确认后执行')
         if (!Array.isArray(body.ids) || body.ids.length === 0) throw new HttpError(400, 'no-targets', '没有指定要更新的项目')
-        if (body.ids.length > 100) throw new HttpError(400, 'too-many-targets', '单次最多更新 100 项')
-        const reservation = state.activeUpdateTask
-        if (reservation === UPDATE_STARTING) throw new HttpError(409, 'update-busy', '已有更新请求正在准备，请稍候')
-        const active = reservation === undefined ? undefined : deps.services.tasks.get(reservation)
-        if (active !== undefined && (active.status === 'queued' || active.status === 'running')) {
-          throw new HttpError(409, 'update-busy', '已有更新任务正在执行，请等待完成')
-        }
-        // Reserve the one update slot synchronously, before any await: two
-        // concurrent requests must not both pass the guard while planning.
-        state.activeUpdateTask = UPDATE_STARTING
         const ids = body.ids.filter((id): id is string => typeof id === 'string')
         const workspace = validateWorkspace(ctx, body.workspace)
         try {
-          const plan = await deps.updates.plan(body.scope, ids, workspace)
-          if (plan.entries.length === 0 && plan.excluded.length === 0) throw new HttpError(400, 'no-plan', '没有匹配的可更新项目')
-          // Entries flagged requiresConfirmation (prerelease, unverified source or
-          // local modifications) are executable only through an explicit request;
-          // their confirmation is checked again by the executor's PREFLIGHT.
-          const executable = plan.entries.filter(entry => entry.eligible
-            || (entry.requiresConfirmation === true && (body.overwriteLocalModifications === true || plan.entries.length === 1)))
-          if (executable.length === 0) {
-            throw new HttpError(400, 'no-eligible', plan.entries[0]?.excludedReason ?? plan.excluded[0]?.excludedReason ?? '没有可安全自动更新的项目')
-          }
-          const task = deps.services.tasks.create({
-            kind: executable.length > 1 ? 'batch-update' : 'update',
+          const result = await deps.coordinator.startUpdate({
             scope: body.scope,
-            items: executable.map(entry => ({
-              id: entry.id,
-              name: entry.displayName,
-              ...(entry.currentVersion === undefined ? {} : { fromVersion: entry.currentVersion }),
-              ...(entry.targetVersion === undefined ? {} : { toVersion: entry.targetVersion }),
-            })),
-            plan,
-          })
-          state.activeUpdateTask = task.id
-          const signal = new AbortController().signal
-          void deps.updates.execute({
-            plan,
+            ids,
             confirmed: true,
             overwriteLocalModifications: body.overwriteLocalModifications === true,
-            taskId: task.id,
-            signal,
             ...(workspace === undefined ? {} : { workspace }),
-          }).then(() => {
-            const current = deps.services.tasks.get(task.id)
-            if (current === undefined) return
-            if (current.status !== 'queued' && current.status !== 'running') return
-            const failed = current.items.filter(item => item.status === 'failed').length
-            deps.services.tasks.finish(task.id, failed > 0 ? 'failed' : 'done', failed > 0 ? `${String(failed)} 项更新失败` : '更新流程完成')
-          }).catch((error: unknown) => {
-            deps.services.tasks.finish(task.id, 'failed', '更新失败', errorText(error))
-          }).finally(() => {
-            if (state.activeUpdateTask === task.id) state.activeUpdateTask = undefined
           })
-          const response: UpdateResponse = { ok: true, task, plan }
+          const response: UpdateResponse = { ok: true, task: result.task, plan: result.plan }
           sendJson(res, 200, response)
           return
         } catch (error) {
-          if (state.activeUpdateTask === UPDATE_STARTING) state.activeUpdateTask = undefined
+          if (error instanceof CoordinatorError) throw new HttpError(error.status, error.code, error.message)
           throw error
         }
       }

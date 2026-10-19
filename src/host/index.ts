@@ -22,6 +22,7 @@ import { PluginUpdateCheckerImpl } from './updates/pluginUpdates'
 import { SkillUpdateCheckerImpl } from './updates/skillUpdates'
 import { UpdateCheckService } from './updates/checker'
 import { UpdateExecutor } from './updates/executor'
+import { UpdateCoordinator } from './updates/coordinator'
 import { buildDiagnostics, registerRoutes } from './routes'
 
 export const name = 'extension-manager'
@@ -57,12 +58,15 @@ export async function apply(ctx: Context): Promise<void> {
   const skillChecker = new SkillUpdateCheckerImpl(ctx, state, log)
   const checks = new UpdateCheckService(services, pluginChecker, skillChecker)
   const updates = new UpdateExecutor(services)
+  const coordinator = new UpdateCoordinator(services, checks, updates, paths.tasksFile)
+  coordinator.initialize()
 
   ctx.effect(
     () => registerRoutes(ctx, {
       services,
       checks,
       updates,
+      coordinator,
       environment: () => buildDiagnostics(ctx, services),
       version: readManagerVersion(),
     }),
@@ -73,11 +77,10 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.on('plugin-manager/changed', () => { plugins.invalidate() })
   ctx.on('skills/change', () => { skills.invalidate() })
 
-  // Reconcile transactions a previous Host process left unfinished.
-  if (updates.recover !== undefined) {
-    void updates.recover().catch((error: unknown) => {
-      log.error('host.recover-failed', { message: error instanceof Error ? error.message : String(error) })
-    })
-  }
+  // Reconcile transactions a previous Host process left unfinished. The
+  // coordinator keeps the same recovery path and records task-level outcomes.
+  void coordinator.recover().catch((error: unknown) => {
+    log.error('host.recover-failed', { message: error instanceof Error ? error.message : String(error) })
+  })
   log.info('host.ready', { stateDir: paths.stateDir })
 }

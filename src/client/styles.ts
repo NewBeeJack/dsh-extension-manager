@@ -87,7 +87,7 @@ export const CSS = `
 /* ---------------------------------------------------------------- *
  * Statistics strip
  * ---------------------------------------------------------------- */
-.em-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.em-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .em-stat {
   position: relative;
   display: flex;
@@ -148,10 +148,40 @@ export const CSS = `
  * Toolbar
  * ---------------------------------------------------------------- */
 .em-toolbar { display: flex; flex-direction: column; gap: 8px; }
-.em-toolRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.em-search { flex: 1 1 220px; min-width: 160px; }
+.em-toolRow { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
+.em-search { flex: 1 1 150px; min-width: 120px; }
 .em-toolSpacer { flex: 1 1 auto; min-width: 0; }
 .em-toolHint { margin: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); }
+.em-filterPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-settings-card-fill);
+}
+.em-filterPanelRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.em-filterPanelFoot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 2px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.em-filterMatch { font-variant-numeric: tabular-nums; }
+.em-statsDetails { margin: -2px 0 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); }
+.em-statsDetails summary { cursor: pointer; width: fit-content; }
+.em-statsDetails summary:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+  border-radius: var(--dsw-radius-xs);
+}
+.em-statsDetails p { margin: 2px 0 0; }
 .em-menuAnchor { display: inline-flex; min-width: 0; }
 .em-menuAnchor .em-filterBtn {
   height: 28px;
@@ -308,6 +338,18 @@ export const CSS = `
 }
 .em-groupMeta { margin-left: auto; font-size: 11px; line-height: 16px; color: var(--dsw-alias-state-business-primary); }
 .em-listFooter { margin: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.em-virtualList {
+  max-height: min(65vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--dsw-radius-lg);
+  scrollbar-gutter: stable;
+}
+.em-virtualInner { position: relative; min-width: 0; }
+.em-vitem { position: absolute; left: 0; right: 0; }
+.em-vitemGroup { height: 32px; }
+.em-vitemRow { height: 84px; padding-bottom: 6px; box-sizing: border-box; }
+.em-vitemRow .em-row { height: 78px; overflow: hidden; }
 .em-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 
 /* ---------------------------------------------------------------- *
@@ -316,9 +358,9 @@ export const CSS = `
 .em-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 0.5px solid var(--dsw-alias-settings-card-stroke);
   border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-settings-card-fill);
@@ -334,8 +376,8 @@ export const CSS = `
   margin-top: 1px;
   color: var(--dsw-alias-label-tertiary);
 }
-.em-rowBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.em-rowTop { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
+.em-rowBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.em-rowTop { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 22px; flex-wrap: nowrap; }
 .em-rowName {
   flex: 0 1 auto;
   min-width: 0;
@@ -375,7 +417,7 @@ export const CSS = `
   margin: 0;
   overflow: hidden;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 17px;
   color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -386,7 +428,7 @@ export const CSS = `
   gap: 4px;
   min-width: 0;
   font-size: 11px;
-  line-height: 16px;
+  line-height: 15px;
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -749,7 +791,6 @@ export const CSS = `
 }
 
 @container em (max-width: 520px) {
-  .em-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .em-scanMeta { display: none; }
   .em-facts { grid-template-columns: 76px minmax(0, 1fr); }
 }

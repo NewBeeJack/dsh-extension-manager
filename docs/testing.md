@@ -4,15 +4,16 @@ The project keeps three layers of verification. All of them are runnable from a 
 
 ## 1. Unit tests — `npm test`
 
-`node --test` with the native TypeScript runner (no build step). 98 tests:
+`node --test` with the native TypeScript runner (no build step). 102 tests:
 
 | File | Coverage |
 | --- | --- |
 | `test/plugin-updates.test.ts` | registry policy / public-mirror fallback limits, packument parsing, candidate selection, compatibility, proxy/NO_PROXY, git spec & lockfile parsing, ref peeling |
 | `test/skills.test.ts` | SKILL.md frontmatter, skill root resolution, git tree hashing, lockfile parsing, shadowing |
+| `test/coordinator.test.ts` | coordinator admission, task journal persistence/restart, duplicate-update guard, cancellation lookup |
 | `test/updater.test.ts` | transaction state machine, backup verification, tarball/archive parsing, Windows replace semantics, rollback, crash recovery, serialized queue |
 
-Expected: 98 passing in roughly 2 seconds; `npm run typecheck` is clean.
+Expected: 102 passing in roughly 2 seconds; `npm run typecheck` is clean.
 
 ## 2. Isolated acceptance environment — `scripts/test-env/`
 
@@ -46,11 +47,27 @@ node scripts/dev/verify-dialog-layout.mjs --url "http://127.0.0.1:3080/?token=..
 
 Contract and design rationale: [dialog-layout.md](dialog-layout.md).
 
-## Verification summary (v0.1.1)
+## Verification summary (v0.2.0)
 
-- Unit tests: **98/98 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
+- Unit tests: **102/102 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
 - Isolated acceptance: **7/7 scenarios passing**, including npm update, git update with rollback, batch + concurrency, local-modification overwrite, interrupted-install recovery, skill update and Windows file-lock rollback.
 - Dialog layout: **19/19 checks passing** at 1920×1080, 1536×864, 1366×768, 1093×614, 911×512 and 683×384, plus dark mode and last-line visibility.
 - Real-environment smoke: installed from the release tarball into a DSH `web` profile, Host health endpoint returns ok, Plugins/Skills inventories, details, diagnostics and update-plan dialogs verified in the DSH Web GUI (light and dark themes).
 
 Numbers depend on the profile and upstream releases; they are a snapshot, not a fixed promise.
+
+### V5 list performance (local demo, Edge headless)
+
+`?emFixture=1&emRows=N` synthetic preview records, one fresh browser per size:
+
+| Inventory rows | Mounted rows | DOM nodes | Manager open | Search response |
+| --- | --- | --- | --- | --- |
+| 21 | 21 | ~1.4k | 252 ms | 4 ms |
+| 61 | 61 | ~2.5k | 237 ms | 6 ms |
+| 211 | 8 | ~1.0k | 246 ms | 6 ms |
+| 511 | 8 | ~1.0k | 232 ms | 8 ms |
+| 1011 | 8 | ~1.0k | 236 ms | 8 ms |
+
+The 100-row threshold keeps small lists in normal document flow; larger lists window the same sorted/grouped items. Search and filters still operate on the full data set.
+
+

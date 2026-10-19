@@ -35,6 +35,13 @@ export class TaskRegistry {
     return task
   }
 
+  /** Replace the in-memory set with a restored snapshot (used after a Host restart). */
+  restore(tasks: readonly TaskState[]): void {
+    this.tasks.clear()
+    for (const task of tasks) this.tasks.set(task.id, task)
+    this.prune()
+  }
+
   /** Read one task. */
   get(id: string): TaskState | undefined {
     return this.tasks.get(id)

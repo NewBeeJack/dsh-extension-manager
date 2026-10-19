@@ -349,6 +349,16 @@ try {
   const managerReady = await openManager(launchUrl)
   if (managerReady !== true) throw new Error('Extension Manager settings section did not open')
 
+  /** Ensure the collapsible filter panel (which holds the diagnostics button) is open. */
+  const openFilterPanel = async () => {
+    const visible = await evaluate(`(()=>[...document.querySelectorAll('[role=dialog] button')].some(b=>(b.textContent||'').trim()==='诊断'))()`)
+    if (visible === true) return true
+    await clickButton(`/^筛选(（\d+）)?$/.test((x.textContent||'').trim())`)
+    await sleep(350)
+    return await evaluate(`(()=>[...document.querySelectorAll('[role=dialog] button')].some(b=>(b.textContent||'').trim()==='诊断'))()`)
+  }
+  await openFilterPanel()
+
   // ------------------------------------------------- diagnostics per size
   for (const size of sizes) {
     await setSize(size)
@@ -410,7 +420,9 @@ try {
       // fixture pages may show a single update instead; fall back to the row action
       opened = await clickButton(`(x.textContent||'').trim()==='更新'`)
     }
-    await sleep(3500)
+    const completeVisible = await waitFor(`(()=>Boolean([...document.querySelectorAll('[role=dialog]')].find(x=>String(x.className).includes('em-dialogShell'))))()`, 15000)
+    if (!completeVisible) console.log('[layout] update plan dialog did not appear')
+    await sleep(300)
     await measure('em-dialogShell', 'update-plan complete')
     await screenshot('update-plan-complete')
     await checkLastLine('em-dialogShell', 'update-plan complete last-line', 'update-plan-complete-scrolled')
@@ -445,6 +457,7 @@ try {
   // ---------------------------------------------------------- dark pass
   await setDark(true)
   await openManager(launchUrl)
+  await openFilterPanel()
   const darkOpened = await clickButton(`(x.textContent||'').trim()==='诊断'`)
   if (darkOpened === 'clicked') {
     await sleep(1500)

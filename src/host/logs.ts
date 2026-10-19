@@ -70,6 +70,38 @@ export class ManagerLog {
   warn(event: string, detail?: Record<string, unknown>): void { this.write('warn', event, detail) }
   error(event: string, detail?: Record<string, unknown>): void { this.write('error', event, detail) }
 
+  /**
+   * Append one structured task event. The lifecycle fields stay at the top
+   * level (so logs can be filtered by taskId/extensionId), while unknown extra
+   * fields remain nested under `detail`; every string is masked.
+   */
+  event(level: 'info' | 'warn' | 'error', event: string, fields: Record<string, unknown>): void {
+    const top: Record<string, unknown> = {}
+    const extra: Record<string, unknown> = {}
+    const known = new Set(['taskId', 'extensionId', 'extensionType', 'action', 'phase', 'status', 'message', 'errorCode', 'timestamp'])
+    for (const [key, value] of Object.entries(fields)) {
+      if (value === undefined) continue
+      if (known.has(key)) top[key] = typeof value === 'string' ? maskSecrets(value) : maskValue(value)
+      else extra[key] = maskValue(value)
+    }
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      level,
+      event,
+      ...top,
+      ...(Object.keys(extra).length === 0 ? {} : { detail: extra }),
+    }) + '\n'
+    this.queue = this.queue.then(async () => {
+      try {
+        await mkdir(dirname(this.file), { recursive: true })
+        await this.rotateIfNeeded()
+        await appendFile(this.file, line, 'utf8')
+      } catch {
+        // Logging must never break a management operation.
+      }
+    })
+  }
+
   /** Wait until queued lines are on disk. */
   async flush(): Promise<void> {
     await this.queue

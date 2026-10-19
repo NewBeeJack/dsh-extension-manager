@@ -41,11 +41,15 @@ import {
   formatClock,
   formatDateTime,
   formatDuration,
+  isSkillCopy,
   pendingRestartCount,
   pluginStatCells,
+  pluginStatsSummary,
   PLUGIN_RANGE_OPTIONS,
+  recordName,
   recordsOf,
   skillStatCells,
+  skillStatsSummary,
   sourceGroupOptions,
   unmanagedRootKeys,
   type ExtensionRecord,
@@ -55,6 +59,14 @@ import {
 } from './model'
 import { InlineNotice, RunningLine } from './ui'
 import { fallbackUseWorkspaces } from './workspaces'
+import {
+  beginInventoryRequest,
+  inventoryCacheKey,
+  readInventoryCache,
+  writeInventoryCache,
+  INVENTORY_FRESH_MS,
+} from './inventory-cache'
+import { loadUiState, saveUiState } from './ui-state'
 
 type SectionProps = PropsRuntime<'settings.section'>
 
@@ -100,9 +112,7 @@ function readyData<Payload>(state: LoadState<Payload>): Payload | undefined {
 
 /** Placeholder cells shown while the first inventory load runs (or failed). */
 function loadingCells(scope: ViewScope): StatCell[] {
-  const labels = scope === 'plugins'
-    ? ['已安装', '已启用', '运行中', '可更新', '异常']
-    : ['物理副本', '运行时生效', '已覆盖', '可更新', '异常']
+  const labels = ['已安装', '可更新', '异常']
   return labels.map((label, index) => ({ key: `loading-${String(index)}`, label, value: 0, valueText: '—', hint: '清单尚未加载' }))
 }
 
@@ -135,6 +145,9 @@ function scanMetadata(
   return { meta: meta === '' ? undefined : meta, title }
 }
 
+const EMPTY_COLLISIONS: ReadonlyMap<string, number> = new Map()
+const EMPTY_ROOTS: ReadonlySet<string> = new Set()
+
 /** The settings section body. */
 export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const [transport] = useState<Transport>(() => createTransport())
@@ -143,15 +156,24 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const useWorkspaces = props.useWorkspaces ?? fallbackUseWorkspaces
   const workspaceItems = useWorkspaces(snapshot => snapshot.items)
   const preview = transport.preview
-  const [scope, setScope] = useState<ViewScope>('plugins')
-  const [plugins, setPlugins] = useState<LoadState<PluginInventoryPayload>>({ phase: 'idle' })
-  const [skills, setSkills] = useState<LoadState<SkillsInventoryPayload>>({ phase: 'idle' })
+  const savedUi = useMemo(loadUiState, [])
+  const initialPluginCache = readInventoryCache<PluginInventoryPayload>('plugins')
+  const initialSkillCache = readInventoryCache<SkillsInventoryPayload>(inventoryCacheKey('skills', savedUi.skillWorkspace))
+  const [scope, setScope] = useState<ViewScope>(savedUi.scope)
+  const [plugins, setPlugins] = useState<LoadState<PluginInventoryPayload>>(() => initialPluginCache === undefined
+    ? { phase: 'idle' }
+    : { phase: 'ready', data: initialPluginCache.data, loadedAt: initialPluginCache.loadedAt })
+  const [skills, setSkills] = useState<LoadState<SkillsInventoryPayload>>(() => initialSkillCache === undefined
+    ? { phase: 'idle' }
+    : { phase: 'ready', data: initialSkillCache.data, loadedAt: initialSkillCache.loadedAt })
   const [pluginsRefreshing, setPluginsRefreshing] = useState(false)
   const [skillsRefreshing, setSkillsRefreshing] = useState(false)
-  const [pluginFilters, setPluginFilters] = useState<RecordFilters>(defaultFilters)
-  const [skillFilters, setSkillFilters] = useState<RecordFilters>(defaultFilters)
-  const [pluginCollapsed, setPluginCollapsed] = useState<ReadonlySet<string>>(() => new Set())
-  const [skillCollapsed, setSkillCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const [pluginFilters, setPluginFilters] = useState<RecordFilters>(savedUi.pluginFilters)
+  const [skillFilters, setSkillFilters] = useState<RecordFilters>(savedUi.skillFilters)
+  const [pluginFiltersOpen, setPluginFiltersOpen] = useState(savedUi.pluginFiltersOpen)
+  const [skillFiltersOpen, setSkillFiltersOpen] = useState(savedUi.skillFiltersOpen)
+  const [pluginCollapsed, setPluginCollapsed] = useState<ReadonlySet<string>>(() => new Set(savedUi.pluginCollapsed))
+  const [skillCollapsed, setSkillCollapsed] = useState<ReadonlySet<string>>(() => new Set(savedUi.skillCollapsed))
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
   const [selected, setSelected] = useState<ExtensionRecord | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
@@ -161,10 +183,9 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [online, setOnline] = useState<boolean>(() => typeof navigator === 'undefined' ? true : navigator.onLine)
-  const [skillWorkspace, setSkillWorkspace] = useState<string | undefined>(undefined)
-  const skillWorkspaceRef = useRef<string | undefined>(undefined)
-  const pluginSeq = useRef(0)
-  const skillSeq = useRef(0)
+  const [skillWorkspace, setSkillWorkspace] = useState<string | undefined>(savedUi.skillWorkspace)
+  const skillWorkspaceRef = useRef<string | undefined>(savedUi.skillWorkspace)
+  const rootRef = useRef<HTMLElement | null>(null)
 
   /* ---------------------------------------------------------------- *
    * Network status
@@ -184,58 +205,77 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
    * Inventory loading
    * ---------------------------------------------------------------- */
   const loadPlugins = useCallback(async (options: { refresh?: boolean; background?: boolean } = {}): Promise<void> => {
-    const seq = ++pluginSeq.current
+    const key = 'plugins' as const
+    const cached = readInventoryCache<PluginInventoryPayload>(key)
+    if (cached !== undefined) {
+      setPlugins(current => current.phase === 'ready'
+        ? current
+        : { phase: 'ready', data: cached.data, loadedAt: cached.loadedAt })
+      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return
+    }
     if (options.background !== true) {
       setPlugins(current => current.phase === 'ready' ? { ...current, staleError: undefined } : { phase: 'loading' })
       setPluginsRefreshing(true)
     }
+    const request = beginInventoryRequest(key)
     try {
-      const payload = await transport.plugins({ refresh: options.refresh === true })
-      if (seq !== pluginSeq.current) return
+      const payload = await transport.plugins({ refresh: options.refresh === true, signal: request.signal })
+      if (!request.isCurrent()) return
+      writeInventoryCache(key, payload)
       setPlugins({ phase: 'ready', data: payload, loadedAt: Date.now() })
     } catch (caught) {
-      if (seq !== pluginSeq.current || isAbortError(caught)) return
+      if (!request.isCurrent() || isAbortError(caught)) return
       const message = apiErrorText(caught)
       setPlugins(current => current.phase === 'ready'
         ? { ...current, staleError: message }
         : { phase: 'error', error: caught instanceof ApiError ? caught : new ApiError('invalid', message) })
     } finally {
-      if (seq === pluginSeq.current) setPluginsRefreshing(false)
+      if (request.isCurrent()) setPluginsRefreshing(false)
     }
   }, [transport])
 
   const loadSkills = useCallback(async (
     options: { refresh?: boolean; background?: boolean; workspace?: string | undefined } = {},
   ): Promise<void> => {
-    const seq = ++skillSeq.current
+    const workspace = options.workspace ?? skillWorkspaceRef.current
+    const key = inventoryCacheKey('skills', workspace)
+    const cached = readInventoryCache<SkillsInventoryPayload>(key)
+    if (cached !== undefined) {
+      setSkills(current => current.phase === 'ready'
+        ? current
+        : { phase: 'ready', data: cached.data, loadedAt: cached.loadedAt })
+      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return
+    }
     if (options.background !== true) {
       setSkills(current => current.phase === 'ready' ? { ...current, staleError: undefined } : { phase: 'loading' })
       setSkillsRefreshing(true)
     }
-    const workspace = options.workspace ?? skillWorkspaceRef.current
+    const request = beginInventoryRequest(key)
     try {
       const payload = await transport.skills({
         refresh: options.refresh === true,
         ...(workspace === undefined ? {} : { workspace }),
+        signal: request.signal,
       })
-      if (seq !== skillSeq.current) return
+      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current) return
+      writeInventoryCache(key, payload)
       setSkills({ phase: 'ready', data: payload, loadedAt: Date.now() })
     } catch (caught) {
-      if (seq !== skillSeq.current || isAbortError(caught)) return
+      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current || isAbortError(caught)) return
       const message = apiErrorText(caught)
       setSkills(current => current.phase === 'ready'
         ? { ...current, staleError: message }
         : { phase: 'error', error: caught instanceof ApiError ? caught : new ApiError('invalid', message) })
     } finally {
-      if (seq === skillSeq.current) setSkillsRefreshing(false)
+      if (request.isCurrent() && workspace === skillWorkspaceRef.current) setSkillsRefreshing(false)
     }
   }, [transport])
 
-  useEffect(() => { void loadPlugins() }, [loadPlugins])
+  useEffect(() => { void loadPlugins({ background: true }) }, [loadPlugins])
 
   // Load a page on first visit, and quietly prefetch the other one afterwards.
   useEffect(() => {
-    if (scope === 'skills' && skills.phase === 'idle') void loadSkills()
+    if (scope === 'skills' && skills.phase === 'idle') void loadSkills({ background: true })
   }, [scope, skills.phase, loadSkills])
 
   useEffect(() => {
@@ -248,9 +288,12 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
    * Task lifecycle
    * ---------------------------------------------------------------- */
   const finishTask = useCallback((task: TaskState, taskScope: ViewScope, origin: 'check' | 'update'): void => {
+    // A finished check/update changes the records' cached statuses; always
+    // re-read both the Host inventory and the check cache instead of reusing a
+    // fresh-looking snapshot from before the task.
     void (taskScope === 'plugins'
-      ? loadPlugins({ refresh: origin === 'update', background: true })
-      : loadSkills({ refresh: origin === 'update', background: true }))
+      ? loadPlugins({ refresh: true, background: true })
+      : loadSkills({ refresh: true, background: true }))
     if (task.status === 'done') {
       setToast({ key: Date.now(), text: task.message ?? '任务已完成', success: true })
     } else if (task.status === 'failed') {
@@ -397,7 +440,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
 
   const reloadScope = useCallback((): void => {
     setActionError(null)
-    void (scope === 'plugins' ? loadPlugins() : loadSkills())
+    void (scope === 'plugins' ? loadPlugins({ refresh: true }) : loadSkills({ refresh: true }))
   }, [scope, loadPlugins, loadSkills])
 
   const loadDiagnostics = useCallback((): Promise<DiagnosticsResponse> => transport.diagnostics(), [transport])
@@ -419,6 +462,15 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   )
   const activeRecords = scope === 'plugins' ? pluginRecords : skillRecords
   const unmanagedRoots = useMemo(() => unmanagedRootKeys(skillsData), [skillsData])
+  const skillCollisions = useMemo<ReadonlyMap<string, number>>(() => {
+    const counts = new Map<string, number>()
+    for (const record of skillRecords) {
+      if (!isSkillCopy(record) || unmanagedRoots.has(record.rootKey)) continue
+      const name = recordName(record)
+      counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+    return counts
+  }, [skillRecords, unmanagedRoots])
   const activeFilters = scope === 'plugins' ? pluginFilters : skillFilters
   const activeCollapsed = scope === 'plugins' ? pluginCollapsed : skillCollapsed
   const groups = useMemo(
@@ -431,6 +483,42 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     }
     return skillsData === undefined ? loadingCells('skills') : skillStatCells(skillsData.stats)
   }, [scope, pluginsData, skillsData])
+  const statSummary = scope === 'plugins'
+    ? (pluginsData === undefined ? '' : pluginStatsSummary(pluginsData.stats))
+    : (skillsData === undefined ? '' : skillStatsSummary(skillsData.stats))
+  const matchedCount = groups.reduce((sum, group) => sum + group.records.length, 0)
+  const filtersOpen = scope === 'plugins' ? pluginFiltersOpen : skillFiltersOpen
+  const toggleFilters = useCallback((): void => {
+    if (scope === 'plugins') setPluginFiltersOpen(open => !open)
+    else setSkillFiltersOpen(open => !open)
+  }, [scope])
+  const dialogOpen = selected !== null || diagnosticsOpen || updateDialog.open
+  const onRootKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.defaultPrevented || event.repeat || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target as HTMLElement
+    const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable
+    if (event.key === '/' && !typing && !dialogOpen) {
+      event.preventDefault()
+      rootRef.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+      return
+    }
+    if (event.key !== 'Escape' || dialogOpen) return
+    if (filtersOpen) {
+      event.preventDefault()
+      toggleFilters()
+      return
+    }
+    if (activeFilters.query !== '') {
+      event.preventDefault()
+      setActiveFilters({ ...activeFilters, query: '' })
+      return
+    }
+    const search = rootRef.current?.querySelector<HTMLInputElement>('input[type="search"]')
+    if (search !== undefined && search !== null && document.activeElement === search) {
+      event.preventDefault()
+      search.blur()
+    }
+  }
   const title = scanMetadata(scope, pluginsData, skillsData)
   const busy = taskIsRunning(activeTask?.task ?? null) || updateBusy || checkingAction
   const checkingIds = useMemo<ReadonlySet<string>>(() => {
@@ -495,6 +583,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     if (workspace === skillWorkspaceRef.current) return
     skillWorkspaceRef.current = workspace
     setSkillWorkspace(workspace)
+    setSkills({ phase: 'loading' })
     void loadSkills({ workspace })
   }, [loadSkills])
 
@@ -509,6 +598,22 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     : activeRecords.find(record => record.id === selected.id) ?? selected
 
   /* ---------------------------------------------------------------- *
+   * Persisted UI state
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    saveUiState({
+      scope,
+      pluginFilters,
+      skillFilters,
+      pluginCollapsed: [...pluginCollapsed],
+      skillCollapsed: [...skillCollapsed],
+      pluginFiltersOpen,
+      skillFiltersOpen,
+      skillWorkspace,
+    })
+  }, [scope, pluginFilters, skillFilters, pluginCollapsed, skillCollapsed, pluginFiltersOpen, skillFiltersOpen, skillWorkspace])
+
+  /* ---------------------------------------------------------------- *
    * Render
    * ---------------------------------------------------------------- */
   const incomplete = reconciliation !== undefined && !reconciliation.complete
@@ -521,7 +626,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const taskInFlight = taskIsRunning(activeTask?.task ?? null)
 
   return (
-    <section className="em-root" aria-label="扩展管理器">
+    <section className="em-root" aria-label="扩展管理器" ref={rootRef} onKeyDown={onRootKeyDown}>
       <HeaderBar
         scope={scope}
         onScopeChange={setScope}
@@ -589,6 +694,12 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         onToggleFilter={toggleStatFilter}
         loading={loading}
       />
+      {loading || statSummary === '' ? null : (
+        <details className="em-statsDetails">
+          <summary>统计详情</summary>
+          <p>{statSummary}</p>
+        </details>
+      )}
 
       <Toolbar
         scope={scope}
@@ -600,6 +711,11 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
           ? { value: workspaceSelector.value, options: workspaceSelector.options, onChange: selectSkillWorkspace }
           : undefined}
         records={activeRecords}
+        filtersOpen={filtersOpen}
+        onToggleFilters={toggleFilters}
+        matchedCount={matchedCount}
+        totalCount={activeRecords.length}
+        onClearFilters={clearFilters}
         ready={!loading && error === undefined}
         taskRunning={taskInFlight || updateBusy}
         refreshing={scope === 'plugins' ? pluginsRefreshing : skillsRefreshing}
@@ -686,6 +802,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
               totalRecords={activeRecords.length}
               unmanagedRoots={unmanagedRoots}
               checkingIds={checkingIds}
+              collisions={scope === 'skills' ? skillCollisions : EMPTY_COLLISIONS}
               busy={busy}
               onToggleGroup={toggleGroup}
               onOpenDetails={setSelected}
@@ -717,6 +834,8 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         onUpdate={(record) => { void requestPlan('single', [record.id]) }}
         onOpenDiagnostics={() => { setSelected(null); setDiagnosticsOpen(true) }}
         loadHistory={loadHistory}
+        allRecords={scope === 'skills' ? skillRecords : pluginRecords}
+        unmanagedRoots={scope === 'skills' ? unmanagedRoots : EMPTY_ROOTS}
       />
       <UpdateDialog
         open={updateDialog.open}

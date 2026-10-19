@@ -92,6 +92,12 @@ console.log(`[batch] versions now: context ${installedVersion('dsh-context')} / 
 const state = JSON.parse(readFileSync(join(envRoot, 'dsh-home', 'extension-manager', 'state.json'), 'utf8'))
 const recent = state.history.filter(item => item.kind === 'plugin-bundle').slice(0, 3)
 console.log(`[batch] history: ${recent.map(item => `${item.name}:${item.outcome}:${item.fromVersion}->${item.toVersion}`).join(' ; ')}`)
-if (installedVersion('dsh-context') !== '0.73.0') throw new Error('batch did not update dsh-context')
-if (installedVersion('dsh-whale-widget') !== '0.4.2') throw new Error('batch did not update dsh-whale-widget')
+// The registry keeps moving; assert against the plan's target instead of a
+// hardcoded version so this acceptance scenario stays valid over time.
+const contextTarget = entries.find(entry => entry.id === contextAgain.id)?.targetVersion
+if (contextTarget === undefined) throw new Error('batch plan has no target version for dsh-context')
+if (installedVersion('dsh-context') !== contextTarget) throw new Error(`batch did not update dsh-context to ${contextTarget}`)
+const whaleTarget = entries.find(entry => entry.id === whaleAgain.id)?.targetVersion
+if (whaleTarget === undefined) throw new Error('batch plan has no target version for dsh-whale-widget')
+if (installedVersion('dsh-whale-widget') !== whaleTarget) throw new Error(`batch did not update dsh-whale-widget to ${whaleTarget}`)
 console.log('[batch] batch verified')

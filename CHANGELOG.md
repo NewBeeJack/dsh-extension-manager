@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-10-20
+
+Local V5 optimization; **not published** to npm/GitHub.
+
+### Changed
+
+- Three primary stats (installed / updatable / abnormal) with a secondary “统计详情” disclosure; the compact toolbar now keeps search, filter, refresh, check-all and update-all on one row, with source/status/range/workspace/sort/diagnostics in a collapsible filter panel and a “当前匹配 N 项” readout.
+- Cards are tighter three-line rows with one-line descriptions and metadata; all existing details/actions remain reachable.
+- Added `UpdateCoordinator` (task admission, single-flight, cancellation request, structured task events, durable `tasks.json` journal). Plugin and skill executors, transaction phases, backups and recovery are unchanged; interrupted tasks are reported after a Host restart.
+- Skills: same-name physical copies show a “同名副本 N” badge; details list candidate root/rank/provider/scope/real path/coverage; incomplete runtime catalogs show “当前作用域未验证”.
+- Client inventory cache keyed by scope+workspace with stale-while-revalidate, epoch/abort guards, persisted search/filter/sort/collapsed state, and on-demand rendering above 100 visible rows. `/` focuses search and Escape closes filters/clears search within the page.
+- Tests: 102 (4 coordinator tests added).
+
 ## [0.1.1] — 2026-10-19
 
 ### Changed
