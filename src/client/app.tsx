@@ -66,7 +66,7 @@ import {
   writeInventoryCache,
   INVENTORY_FRESH_MS,
 } from './inventory-cache'
-import { loadUiState, saveUiState } from './ui-state'
+import { loadUiState, saveUiScroll, saveUiState } from './ui-state'
 
 type SectionProps = PropsRuntime<'settings.section'>
 
@@ -186,6 +186,8 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const [skillWorkspace, setSkillWorkspace] = useState<string | undefined>(savedUi.skillWorkspace)
   const skillWorkspaceRef = useRef<string | undefined>(savedUi.skillWorkspace)
   const rootRef = useRef<HTMLElement | null>(null)
+  const pluginScrollRef = useRef(savedUi.pluginsScrollTop)
+  const skillScrollRef = useRef(savedUi.skillsScrollTop)
 
   /* ---------------------------------------------------------------- *
    * Network status
@@ -610,8 +612,41 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
       pluginFiltersOpen,
       skillFiltersOpen,
       skillWorkspace,
+      pluginsScrollTop: pluginScrollRef.current,
+      skillsScrollTop: skillScrollRef.current,
     })
   }, [scope, pluginFilters, skillFilters, pluginCollapsed, skillCollapsed, pluginFiltersOpen, skillFiltersOpen, skillWorkspace])
+
+  /* Restore and remember the page's list scroll offset (the nearest scrollable
+   * ancestor of this section inside the Settings panel). */
+  useEffect(() => {
+    const root = rootRef.current
+    if (root === null) return
+    let parent: HTMLElement | null = root.parentElement
+    while (parent !== null) {
+      const overflow = getComputedStyle(parent).overflowY
+      if ((overflow === 'auto' || overflow === 'scroll') && parent.scrollHeight > parent.clientHeight) break
+      parent = parent.parentElement
+    }
+    if (parent === null) return
+    const target = parent
+    target.scrollTop = scope === 'plugins' ? pluginScrollRef.current : skillScrollRef.current
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onScroll = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = undefined
+        if (scope === 'plugins') pluginScrollRef.current = target.scrollTop
+        else skillScrollRef.current = target.scrollTop
+        saveUiScroll(scope, target.scrollTop)
+      }, 150)
+    }
+    target.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      target.removeEventListener('scroll', onScroll)
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [scope])
 
   /* ---------------------------------------------------------------- *
    * Render

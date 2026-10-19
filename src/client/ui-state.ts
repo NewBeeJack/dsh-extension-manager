@@ -23,6 +23,8 @@ export interface PersistedUiState {
   pluginFiltersOpen: boolean
   skillFiltersOpen: boolean
   skillWorkspace: string | undefined
+  pluginsScrollTop: number
+  skillsScrollTop: number
 }
 
 function validFilters(value: unknown, scope: ViewScope): RecordFilters {
@@ -60,6 +62,8 @@ export function loadUiState(): PersistedUiState {
     pluginFiltersOpen: false,
     skillFiltersOpen: false,
     skillWorkspace: undefined,
+    pluginsScrollTop: 0,
+    skillsScrollTop: 0,
   }
   if (typeof window === 'undefined') return fallback
   try {
@@ -75,6 +79,8 @@ export function loadUiState(): PersistedUiState {
       pluginFiltersOpen: raw.pluginFiltersOpen === true,
       skillFiltersOpen: raw.skillFiltersOpen === true,
       skillWorkspace: typeof raw.skillWorkspace === 'string' && raw.skillWorkspace !== '' ? raw.skillWorkspace : undefined,
+      pluginsScrollTop: typeof raw.pluginsScrollTop === 'number' && Number.isFinite(raw.pluginsScrollTop) && raw.pluginsScrollTop >= 0 ? raw.pluginsScrollTop : 0,
+      skillsScrollTop: typeof raw.skillsScrollTop === 'number' && Number.isFinite(raw.skillsScrollTop) && raw.skillsScrollTop >= 0 ? raw.skillsScrollTop : 0,
     }
   } catch {
     return fallback
@@ -95,4 +101,19 @@ export function saveUiState(state: PersistedUiState): void {
       // Quota/private-mode failures must never affect the page.
     }
   }, 250)
+}
+
+
+/** Persist one page's list scroll offset without rewriting the whole UI snapshot. */
+export function saveUiScroll(scope: ViewScope, scrollTop: number): void {
+  if (typeof window === 'undefined') return
+  try {
+    const text = window.localStorage.getItem(KEY)
+    if (text === null) return
+    const raw = JSON.parse(text) as Record<string, unknown>
+    raw[scope === 'plugins' ? 'pluginsScrollTop' : 'skillsScrollTop'] = Math.max(0, Math.round(scrollTop))
+    window.localStorage.setItem(KEY, JSON.stringify(raw))
+  } catch {
+    // ignore quota/private mode
+  }
 }

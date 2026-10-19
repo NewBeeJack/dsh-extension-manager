@@ -27,7 +27,7 @@
 ## 4. Cache, performance, shortcuts
 
 - Client inventory cache is keyed by `plugins` / `skills:<workspace>` (never by name), keeps a small LRU, and uses per-key epoch + AbortController so an older request cannot overwrite a newer one. A cached snapshot renders immediately; stale data is revalidated, and a finished check/update forces a fresh inventory read.
-- Search/filter/sort/collapsed state is persisted in `localStorage` (validated on read, debounced on write); scope and Skills workspace are restored on remount.
+- Search/filter/sort/collapsed state and the page scroll offset are persisted in `localStorage` (validated on read, debounced on write); scope and Skills workspace are restored on remount.
 - Lists switch to windowed rendering at 100 visible rows. Small lists keep normal document flow; rows are fixed-height and group headers are preserved. Focus inside a row is scrolled into view, and the footer reports “已启用按需渲染”.
 - `/` focuses the manager search (ignored while typing or with a modal open); Escape closes the filter panel, clears the search or blurs the search field. No global hotkeys were added.
 
