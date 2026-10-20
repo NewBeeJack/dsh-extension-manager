@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] — 2026-10-21
+
+V3.1b targeted visual corrections; **not published** to npm/GitHub.
+
+- Deepened the three semantic stat-card tints and their borders, icons and primary numbers; the tiny icon plate remains removed.
+- Moved the shared list icon further down to align its visible top edge with the rendered CJK glyph top, not only the title line box; verified by screenshot pixel scans.
+- CSS-only product change; 126 tests, typecheck and build pass.
+
 ## [0.4.2] — 2026-10-21
 
 V3.1 small visual corrections; **not published** to npm/GitHub.

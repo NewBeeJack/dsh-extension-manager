@@ -871,9 +871,21 @@ export const CSS = `
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: none;
 }
-.em-stat[data-kind='installed'] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 7%, var(--dsw-alias-bg-layer-1)); border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 16%, transparent); }
-.em-stat[data-kind='updates'] { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-1)); border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, transparent); }
-.em-stat[data-kind='abnormal'] { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, var(--dsw-alias-bg-layer-1)); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 15%, transparent); }
+.em-stat[data-kind='installed'] {
+  --em-stat-strong: color-mix(in srgb, var(--dsw-alias-state-success-primary) 75%, var(--dsw-alias-label-primary));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, var(--dsw-alias-bg-layer-1));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 30%, transparent);
+}
+.em-stat[data-kind='updates'] {
+  --em-stat-strong: color-mix(in srgb, var(--dsw-alias-state-business-primary) 75%, var(--dsw-alias-label-primary));
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, var(--dsw-alias-bg-layer-1));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent);
+}
+.em-stat[data-kind='abnormal'] {
+  --em-stat-strong: color-mix(in srgb, var(--dsw-alias-state-error-primary) 75%, var(--dsw-alias-label-primary));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent);
+}
 .em-statButton:hover { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, var(--dsw-alias-bg-layer-1)); }
 .em-statButton.is-active {
   border-color: var(--dsw-alias-state-business-primary);
@@ -891,9 +903,8 @@ export const CSS = `
   background: transparent;
 }
 .em-statIcon svg { width: 20px; height: 20px; }
-.em-stat[data-kind='installed'] .em-statIcon { color: var(--dsw-alias-state-success-primary); }
-.em-stat[data-kind='updates'] .em-statIcon { color: var(--dsw-alias-state-business-primary); }
-.em-stat[data-kind='abnormal'] .em-statIcon { color: var(--dsw-alias-state-error-primary); }
+.em-stat[data-kind] .em-statIcon { color: var(--em-stat-strong, var(--dsw-alias-label-secondary)); }
+.em-stat[data-kind] .em-statValue { color: var(--em-stat-strong, var(--dsw-alias-label-primary)); }
 .em-statBody { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .em-statValue { font-size: 27px; line-height: 32px; font-weight: 650; }
 .em-statLabel { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); }
@@ -941,9 +952,10 @@ export const CSS = `
 .em-rowIcon {
   width: 42px;
   height: 42px;
-  /* 2px compensates for the 20px title line inside the 24px title row;
-     the icon container then shares the title's first-line top edge. */
-  margin-top: 2px;
+  /* Compensate for the title line box leading: the 20px name line sits
+     inside a 24px title row, and the rendered CJK glyph starts below its
+     line-box top. 6px puts the icon's visible top edge on that glyph edge. */
+  margin-top: 6px;
   overflow: hidden;
   border-radius: 12px;
   color: #fff;
