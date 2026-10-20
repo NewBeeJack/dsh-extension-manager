@@ -1028,6 +1028,11 @@ export const CSS = `
 .em-taskDetailsToggle:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; border-radius: var(--dsw-radius-xs); }
 .em-taskFailureActions { display: flex; justify-content: flex-end; }
 .em-taskItems { margin-top: 2px; max-height: 190px; }
+.em-taskSkippedGroup { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; padding-top: 5px; border-top: 0.5px solid var(--dsw-alias-border-l1); }
+.em-taskSkippedHeading { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; font-weight: 500; }
+.em-taskSkippedGroup .em-taskItems { margin-top: 0; }
+.em-taskItem[data-status='skipped'] .em-taskItemName { color: var(--dsw-alias-label-secondary); }
+.em-taskSkippedNote { margin: 4px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }
 
 @container em (max-width: 760px) {
   .em-stat { min-height: 78px; height: 78px; padding: 12px; gap: 9px; }

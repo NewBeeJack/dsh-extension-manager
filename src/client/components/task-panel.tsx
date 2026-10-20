@@ -59,6 +59,7 @@ export function TaskPanel({ task, showItems, onToggleItems, onRetryFailed, onDis
   const toggleItems = onToggleItems ?? (() => { setLocalShowItems(value => !value) })
   const running = task.status === 'queued' || task.status === 'running'
   const failedItems = task.items.filter(item => item.status === 'failed')
+  const skippedItems = task.skipped ?? []
   const partialFailure = task.status === 'done'
     && (failedItems.length > 0 || task.message?.includes('网络失败') === true)
   const tone: TagTone = task.status === 'failed' ? 'danger' : partialFailure ? 'warning' : task.status === 'done' ? 'success' : task.status === 'cancelled' ? 'neutral' : 'info'
@@ -162,8 +163,25 @@ export function TaskPanel({ task, showItems, onToggleItems, onRetryFailed, onDis
           ))}
         </ul>
       ) : null}
-      {itemsOpen && task.items.length === 0 && task.kind === 'check' ? (
+      {itemsOpen && skippedItems.length > 0 ? (
+        <div className="em-taskSkippedGroup">
+          <p className="em-taskSkippedHeading">跳过（{String(skippedItems.length)}）</p>
+          <ul className="em-taskItems">
+            {skippedItems.map(item => (
+              <li key={item.id} className="em-taskItem" data-status="skipped" data-skip-id={item.id} title={item.id}>
+                <span className="em-taskItemName">{item.name}</span>
+                <Tag tone="neutral">跳过</Tag>
+                <span className="em-taskItemMessage">原因：{item.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {itemsOpen && task.items.length === 0 && skippedItems.length === 0 && task.kind === 'check' ? (
         <p className="em-taskMessage em-detailMuted">本次检查使用缓存结果，没有逐项明细。</p>
+      ) : null}
+      {itemsOpen && task.skipped === undefined && task.kind === 'check' && task.message?.includes('项跳过') === true ? (
+        <p className="em-taskSkippedNote">该历史任务未保存跳过项目明细。</p>
       ) : null}
       {task.plan === undefined || !itemsOpen ? null : (
         <p className="em-taskMessage em-detailMuted">

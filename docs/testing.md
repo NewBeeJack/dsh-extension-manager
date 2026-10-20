@@ -4,7 +4,7 @@ The project keeps three layers of verification. All of them are runnable from a 
 
 ## 1. Unit tests — `npm test`
 
-`node --test` with the native TypeScript runner (no build step). 126 tests:
+`node --test` with the native TypeScript runner (no build step). 130 tests:
 
 | File | Coverage |
 | --- | --- |
@@ -48,9 +48,9 @@ node scripts/dev/verify-dialog-layout.mjs --url "http://127.0.0.1:3080/?token=..
 
 Contract and design rationale: [dialog-layout.md](dialog-layout.md).
 
-## Verification summary (v0.4.3)
+## Verification summary (v0.4.4)
 
-- Unit tests: **126/126 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
+- Unit tests: **130/130 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
 - Isolated acceptance: **7/7 scenarios passing**, including npm update, git update with rollback, batch + concurrency, local-modification overwrite, interrupted-install recovery, skill update and Windows file-lock rollback.
 - Dialog layout: **15/15 detail/diagnostics checks passing** at 1920×1080, 1536×864, 1366×768, 1093×614, 911×512 and 683×384, plus dark mode and last-line visibility.
 - Toolbar V2: measured 66/90/90/118 px natural button widths, 34 px common height, one row at 900–1200 px viewport; action group wraps at 760/600 and scrolls at 420 without page overflow. See [toolbar-v2.md](toolbar-v2.md).

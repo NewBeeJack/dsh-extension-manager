@@ -534,6 +534,16 @@ export type TaskPhase =
   | 'failed'
   | 'cancelled'
 
+/** One candidate that the check task intentionally did not query. */
+export interface TaskSkippedItem {
+  /** Stable inventory record id; never a display name or array index. */
+  id: string
+  /** Current display name from the inventory record. */
+  name: string
+  /** Reason recorded by the existing check eligibility/cache decision. */
+  reason: string
+}
+
 /** Async task state returned by the Host. */
 export interface TaskState {
   id: string
@@ -558,6 +568,8 @@ export interface TaskState {
   /** Overall result summary (Chinese). */
   message?: string
   error?: string
+  /** Check-task candidates intentionally skipped by the existing eligibility/cache rules. */
+  skipped?: TaskSkippedItem[]
   /** Plan for update tasks. */
   plan?: UpdatePlan
   /** Transactions started by this task. */

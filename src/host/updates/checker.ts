@@ -15,7 +15,7 @@ import type {
   SkillUpdateChecker,
 } from '../contracts'
 import type { CheckCacheEntry } from '../state'
-import type { PluginBundleRecord, SkillRecord, TaskState } from '../../shared/types'
+import type { PluginBundleRecord, SkillRecord, TaskSkippedItem, TaskState } from '../../shared/types'
 import { errorText } from '../logs'
 
 /** How long a cached answer is considered fresh. */
@@ -61,18 +61,18 @@ export class UpdateCheckService {
     const wanted = new Set(request.ids ?? [])
     const pluginRecords: PluginBundleRecord[] = []
     const skillRecords: SkillRecord[] = []
-    const skipped: Array<{ recordId: string; name: string; reason: string }> = []
+    const skipped: TaskSkippedItem[] = []
     if (request.scope === 'plugins' || request.scope === 'all') {
       const inventory = await services.plugins.scan()
       for (const record of inventory.bundles) {
         if (wanted.size > 0 && !wanted.has(record.id)) continue
         if (!record.actions.canCheck) {
-          skipped.push({ recordId: record.id, name: record.name, reason: record.actions.updateBlockedReason ?? '没有可核对的远端来源' })
+          skipped.push({ id: record.id, name: record.displayName, reason: record.actions.updateBlockedReason ?? '没有可核对的远端来源' })
           continue
         }
         const cached = services.state.check(`plugin:${record.id}`)
         if (request.refresh !== true && cached !== undefined && isFresh(cached.checkedAt)) {
-          skipped.push({ recordId: record.id, name: record.name, reason: '使用 5 分钟内的检查缓存' })
+          skipped.push({ id: record.id, name: record.displayName, reason: '使用 5 分钟内的检查缓存' })
           continue
         }
         pluginRecords.push(record)
@@ -83,12 +83,12 @@ export class UpdateCheckService {
       for (const record of inventory.physical) {
         if (wanted.size > 0 && !wanted.has(record.id)) continue
         if (!record.actions.canCheck) {
-          skipped.push({ recordId: record.id, name: record.name, reason: record.actions.updateBlockedReason ?? '没有可核对的远端来源' })
+          skipped.push({ id: record.id, name: record.displayName, reason: record.actions.updateBlockedReason ?? '没有可核对的远端来源' })
           continue
         }
         const cached = services.state.check(`skill:${record.id}`)
         if (request.refresh !== true && cached !== undefined && isFresh(cached.checkedAt)) {
-          skipped.push({ recordId: record.id, name: record.name, reason: '使用 5 分钟内的检查缓存' })
+          skipped.push({ id: record.id, name: record.displayName, reason: '使用 5 分钟内的检查缓存' })
           continue
         }
         skillRecords.push(record)
@@ -102,10 +102,17 @@ export class UpdateCheckService {
         name: record.displayName,
         ...(record.version.current === undefined ? {} : { fromVersion: record.version.current }),
       })),
+      skipped,
     })
     if (pluginRecords.length === 0 && skillRecords.length === 0) {
       services.tasks.start(task.id)
-      services.tasks.finish(task.id, 'done', skipped.length > 0 ? `已使用缓存结果（${String(skipped.length)} 项），没有需要重新检查的项目` : '没有可检查的项目')
+      const cacheOnly = skipped.length > 0 && skipped.every(item => item.reason === '使用 5 分钟内的检查缓存')
+      const noCheckMessage = skipped.length === 0
+        ? '没有可检查的项目'
+        : cacheOnly
+          ? `已使用缓存结果（${String(skipped.length)} 项），没有需要重新检查的项目`
+          : `没有可检查的项目（${String(skipped.length)} 项跳过）`
+      services.tasks.finish(task.id, 'done', noCheckMessage)
       return task
     }
     this.running = task.id
@@ -120,7 +127,7 @@ export class UpdateCheckService {
     taskId: string,
     pluginRecords: readonly PluginBundleRecord[],
     skillRecords: readonly SkillRecord[],
-    skipped: Array<{ recordId: string; name: string; reason: string }>,
+    skipped: TaskSkippedItem[],
     request: CheckRequest,
   ): Promise<void> {
     const { services } = this

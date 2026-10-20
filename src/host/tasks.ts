@@ -4,7 +4,7 @@
  * never blocks the UI thread or a single HTTP request for minutes.
  */
 import { randomUUID } from 'node:crypto'
-import type { TaskState, UpdatePlan } from '../shared/types'
+import type { TaskSkippedItem, TaskState, UpdatePlan } from '../shared/types'
 
 const MAX_RETAINED = 40
 
@@ -18,6 +18,8 @@ export class TaskRegistry {
     scope: TaskState['scope']
     items: Array<{ id: string; name: string; fromVersion?: string; toVersion?: string }>
     plan?: UpdatePlan
+    /** Snapshot of candidates skipped before the task was created. */
+    skipped?: TaskSkippedItem[]
   }): TaskState {
     const task: TaskState = {
       id: randomUUID(),
@@ -29,6 +31,7 @@ export class TaskRegistry {
       completed: 0,
       items: input.items.map(item => ({ ...item, status: 'pending' })),
       ...(input.plan === undefined ? {} : { plan: input.plan }),
+      ...(input.skipped === undefined ? {} : { skipped: input.skipped.map(item => ({ ...item })) }),
     }
     this.tasks.set(task.id, task)
     this.prune()

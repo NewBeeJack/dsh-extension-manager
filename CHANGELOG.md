@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] — 2026-10-21
+
+Update-check skipped-item reporting; **not published** to npm/GitHub.
+
+- Added `TaskSkippedItem` and optional `TaskState.skipped`; check tasks now snapshot the stable id, display name and original reason for every normal skip.
+- Preserved the snapshot through task creation, lifecycle, journal restore and Host API; old tasks without the field remain valid.
+- TaskPanel now shows a separate “跳过（N）” section in expanded check details with real reasons; no empty group is rendered when there are no skips.
+- Accurate all-skipped summary; 130 tests, typecheck and build pass.
+
 ## [0.4.3] — 2026-10-21
 
 V3.1b targeted visual corrections; **not published** to npm/GitHub.
