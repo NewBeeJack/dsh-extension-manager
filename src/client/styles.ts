@@ -886,9 +886,9 @@ export const CSS = `
   justify-content: center;
   width: 38px;
   height: 38px;
-  border-radius: 12px;
+  border-radius: 0;
   color: var(--dsw-alias-label-secondary);
-  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 72%, transparent);
+  background: transparent;
 }
 .em-statIcon svg { width: 20px; height: 20px; }
 .em-stat[data-kind='installed'] .em-statIcon { color: var(--dsw-alias-state-success-primary); }
@@ -941,7 +941,9 @@ export const CSS = `
 .em-rowIcon {
   width: 42px;
   height: 42px;
-  margin-top: 0;
+  /* 2px compensates for the 20px title line inside the 24px title row;
+     the icon container then shares the title's first-line top edge. */
+  margin-top: 2px;
   overflow: hidden;
   border-radius: 12px;
   color: #fff;

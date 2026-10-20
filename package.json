@@ -1,6 +1,6 @@
 {
   "name": "dsh-extension-manager",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Unified plugin & skill manager for DeepSeek Harness (DSH): inventory, update checks, and safe transactional updates.",
   "license": "MIT",
   "type": "module",

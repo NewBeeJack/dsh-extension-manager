@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] — 2026-10-21
+
+V3.1 small visual corrections; **not published** to npm/GitHub.
+
+- Removed the extra icon background plate from all three statistic cards; the semantic card background is now the only background behind each stat glyph.
+- Added a 2px top compensation to the shared list icon container so its top edge aligns with the first title text line (20px line inside a 24px title row) in both Plugins and Skills.
+- No logic, data, icon-source, path-copy or update behavior changed. 126 tests, typecheck and build pass.
+
 ## [0.4.1] — 2026-10-20
 
 Final acceptance hardening; **not published** to npm/GitHub.
