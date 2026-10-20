@@ -1,6 +1,7 @@
 /**
- * Source-grouped record list. Every group is collapsible; a search or filter
- * forces groups open so matches are never hidden behind a collapsed header.
+ * Source-grouped record list. Every group is independently collapsible; a
+ * search or filter changes the visible set but never overrides the user's
+ * explicit group open/closed state.
  *
  * Small result sets use plain document flow. At 100+ visible rows the same
  * groups are flattened into fixed-height list items and only the rows inside
@@ -13,7 +14,6 @@ import {
   IconChevronDownOutlineRegular,
   IconChevronRightOutlineRegular,
   IconCordisPluginOutlineRegular,
-  IconDownloadOutlineRegular,
   IconPluginPinwheelOutlineRegular,
   IconRefreshOutlineRegular,
   IconSearchOutlineRegular,
@@ -23,8 +23,6 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  checkBlockedReason,
-  deriveSignals,
   formatRelative,
   isPluginRow,
   isSkillCopy,
@@ -37,13 +35,12 @@ import {
   recordVersionText,
   shortPath,
   statusViewOf,
-  updateBlockedReason,
   type ExtensionRecord,
   type RecordFilters,
   type RecordGroup,
   type ViewScope,
 } from '../model'
-import { CopyButton, cx, EmptyState, IconAction, StatusTag } from '../ui'
+import { cx, EmptyState, IconAction, StatusTag } from '../ui'
 
 /** Virtualize only when this many rows are visible. */
 export const VIRTUAL_ROW_THRESHOLD = 100
@@ -60,14 +57,10 @@ export interface RecordListProps {
   forceOpen: boolean
   totalRecords: number
   unmanagedRoots: ReadonlySet<string>
-  checkingIds: ReadonlySet<string>
-  busy: boolean
   /** Physical skill copies sharing one name, keyed by name (Skills only). */
   collisions: ReadonlyMap<string, number>
   onToggleGroup: (key: string) => void
   onOpenDetails: (record: ExtensionRecord) => void
-  onCheck: (record: ExtensionRecord) => void
-  onUpdate: (record: ExtensionRecord) => void
   onClearFilters: () => void
   onRefresh: () => void
 }
@@ -110,19 +103,14 @@ function DescriptionLine({ text }: { text: string }): ReactNode {
 
 /** One list row. */
 function RecordRow({
-  record, checking, busy, unmanagedRoots, collisionCount, onOpenDetails, onCheck, onUpdate,
+  record, unmanagedRoots, collisionCount, onOpenDetails,
 }: {
   record: ExtensionRecord
-  checking: boolean
-  busy: boolean
   unmanagedRoots: ReadonlySet<string>
   collisionCount: number
   onOpenDetails: (record: ExtensionRecord) => void
-  onCheck: (record: ExtensionRecord) => void
-  onUpdate: (record: ExtensionRecord) => void
 }): ReactNode {
-  const signals = deriveSignals(record, unmanagedRoots)
-  const status = statusViewOf(record, checking)
+  const status = statusViewOf(record)
   const name = recordName(record)
   const version = recordVersionText(record)
   const description = recordDescription(record)
@@ -130,20 +118,13 @@ function RecordRow({
   const source = recordSourceLabel(record)
   const checked = formatRelative(recordCheckedAt(record))
   const note = runtimeNote(record, unmanagedRoots)
-  const showUpdate = record.version.status === 'update-available' || record.version.status === 'incompatible-update'
-  const canCheck = record.actions.canCheck && !busy
-  const checkReason = checkBlockedReason(record)
-  const updateReason = updateBlockedReason(record)
-  const checkLabel = checking ? '正在检查更新' : '检查更新'
 
   return (
     <li className="em-row" data-kind={record.kind} data-status={record.version.status}>
       <span className="em-rowIcon" aria-hidden="true"><RecordIcon record={record} /></span>
       <div className="em-rowBody">
         <div className="em-rowTop">
-          <button type="button" className="em-rowName" title={`查看详情：${name}`} onClick={() => { onOpenDetails(record) }}>
-            {name}
-          </button>
+          <span className="em-rowName" title={name}>{name}</span>
           {collisionCount > 1 ? (
             <span className="em-quietTag" title={`同名受管物理副本共 ${String(collisionCount)} 份；详情中可查看生效与被覆盖关系`}>
               <Tag tone="neutral">同名副本 {collisionCount}</Tag>
@@ -155,32 +136,6 @@ function RecordRow({
             ? <Tag tone="neutral" className="em-quietTag">未启用</Tag>
             : null}
           <span className="em-rowActions">
-            {showUpdate
-              ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="em-updateBtn"
-                  data-available={signals.updatable ? 'true' : undefined}
-                  icon={<IconDownloadOutlineRegular size={13} />}
-                  disabled={!signals.updatable || busy}
-                  title={updateReason ?? '安装可用更新'}
-                  onClick={() => { onUpdate(record) }}
-                >
-                  更新
-                </Button>
-              )
-              : null}
-            <IconAction
-              label={checkLabel}
-              disabled={!canCheck}
-              disabledReason={checkReason}
-              busy={checking}
-              onClick={() => { onCheck(record) }}
-            >
-              <IconRefreshOutlineRegular size={13} />
-            </IconAction>
             <IconAction label="查看详情" onClick={() => { onOpenDetails(record) }}>
               <IconChevronRightOutlineRegular size={13} />
             </IconAction>
@@ -198,7 +153,6 @@ function RecordRow({
                   <span className="em-mono em-metaPathText" title={path}>{shortPath(path)}</span>
                 </Tooltip>
               )}
-            {path === '' ? null : <CopyButton text={path} label="复制路径" />}
           </span>
           <span className="em-metaTail">
             {note === undefined ? null : <span className="em-metaNote">{note}</span>}
@@ -247,21 +201,17 @@ function buildVirtualItems(
 
 /** Windowed group/row renderer used only for large result sets. */
 function VirtualRecordList({
-  scope, groups, collapsed, forceOpen, checkingIds, busy, unmanagedRoots, collisions,
-  onToggleGroup, onOpenDetails, onCheck, onUpdate,
+  scope, groups, collapsed, forceOpen, unmanagedRoots, collisions,
+  onToggleGroup, onOpenDetails,
 }: {
   scope: ViewScope
   groups: readonly RecordGroup[]
   collapsed: ReadonlySet<string>
   forceOpen: boolean
-  checkingIds: ReadonlySet<string>
-  busy: boolean
   unmanagedRoots: ReadonlySet<string>
   collisions: ReadonlyMap<string, number>
   onToggleGroup: (key: string) => void
   onOpenDetails: (record: ExtensionRecord) => void
-  onCheck: (record: ExtensionRecord) => void
-  onUpdate: (record: ExtensionRecord) => void
 }): ReactNode {
   const items = useMemo(() => buildVirtualItems(groups, collapsed, forceOpen), [groups, collapsed, forceOpen])
   const totalHeight = items.reduce((max, item) => Math.max(max, item.top + (item.type === 'group' ? GROUP_ITEM_HEIGHT : ROW_ITEM_HEIGHT)), 0)
@@ -354,13 +304,9 @@ function VirtualRecordList({
             >
               <RecordRow
                 record={record}
-                checking={checkingIds.has(record.id)}
-                busy={busy}
                 unmanagedRoots={unmanagedRoots}
                 collisionCount={isSkillCopy(record) ? (collisions.get(name) ?? 0) : 0}
                 onOpenDetails={onOpenDetails}
-                onCheck={onCheck}
-                onUpdate={onUpdate}
               />
             </div>
           )
@@ -373,7 +319,7 @@ function VirtualRecordList({
 /** Render all groups (or one of the empty states). */
 export function RecordList({
   scope, groups, filters, collapsed, forceOpen, totalRecords, unmanagedRoots,
-  checkingIds, busy, collisions, onToggleGroup, onOpenDetails, onCheck, onUpdate, onClearFilters, onRefresh,
+  collisions, onToggleGroup, onOpenDetails, onClearFilters, onRefresh,
 }: RecordListProps): ReactNode {
   const visibleRows = groups.reduce((sum, group) => sum + (forceOpen || !collapsed.has(group.key) ? group.records.length : 0), 0)
   if (totalRecords === 0) {
@@ -407,14 +353,10 @@ export function RecordList({
             groups={groups}
             collapsed={collapsed}
             forceOpen={forceOpen}
-            checkingIds={checkingIds}
-            busy={busy}
             unmanagedRoots={unmanagedRoots}
             collisions={collisions}
             onToggleGroup={onToggleGroup}
             onOpenDetails={onOpenDetails}
-            onCheck={onCheck}
-            onUpdate={onUpdate}
           />
         )
         : groups.map((group) => {
@@ -447,13 +389,9 @@ export function RecordList({
                         <RecordRow
                           key={record.id}
                           record={record}
-                          checking={checkingIds.has(record.id)}
-                          busy={busy}
                           unmanagedRoots={unmanagedRoots}
                           collisionCount={isSkillCopy(record) ? (collisions.get(name) ?? 0) : 0}
                           onOpenDetails={onOpenDetails}
-                          onCheck={onCheck}
-                          onUpdate={onUpdate}
                         />
                       )
                     })}

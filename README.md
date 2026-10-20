@@ -26,8 +26,9 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 | --- | --- |
 | ![Skills page](docs/screenshots/skills.png) | ![Diagnostics dialog](docs/screenshots/diagnostics.png) |
 
-## What's new in 0.3.1
+## What's new in 0.3.2
 
+- **V2.1 fixes**: Plugins and Skills each own their task result panel, details-expanded state and dismissed state; group headers remain collapsible with filters/sorting; list rows keep only one “view details” arrow (details and batch update retain the existing actions).
 - **Toolbar V2**: search, filter, refresh-list, check-updates and the conditional black update-all are measured against the real content width; they stay on one line when their natural widths fit, keep labels unwrapped and use a common 34 px control height. The update-all count comes from the existing read-only batch plan, and the button stays hidden until a complete successful check.
 - **One-screen detail dialogs**: Plugins and Skills now open with only basic info, the project repository, the installation location and update status. All former technical sections, diagnostics, update history, contribution rows and same-name copy details are behind a default-collapsed “高级信息与诊断”.
 - **Traceable repository links**: a read-only resolver handles package.json repository declarations, git/GitHub install provenance, GitHub HTTPS/SSH/shorthand spellings, monorepo subdirectories and honest non-link states. It never changes update sources and never guesses a repository from a name.
@@ -51,7 +52,7 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 ### From the local V6 tarball
 
 ```bash
-dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.3.1.tgz"
+dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.3.2.tgz"
 ```
 
 Then enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI. Restart DSH (or let HMR recompose the profile). Open **Settings → 扩展管理器**.
@@ -64,7 +65,7 @@ The npm package on the public registry is still the earlier 0.1.1 release; no 0.
 npm ci
 npm run build          # lib/index.js (Host ESM) + lib/client.js (Web client)
 npm test               # 119 unit tests
-npm pack               # dsh-extension-manager-0.3.1.tgz
+npm pack               # dsh-extension-manager-0.3.2.tgz
 ```
 
 Then install the packed tarball as above. For iterative development use `dsh plugin --profile web add "link:<path-to-checkout>"` and rebuild; the client bundle hot-swaps and `node scripts/dev/reload-host.mjs` can trigger a Host recomposition.

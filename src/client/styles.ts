@@ -416,25 +416,10 @@ export const CSS = `
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
-}
-.em-rowName:hover { color: var(--dsw-alias-state-business-primary); }
-.em-rowName:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 2px;
-  border-radius: var(--dsw-radius-xs);
 }
 .em-rowVersion { flex: none; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); }
 .em-statusTag, .em-quietTag { flex: none; }
 .em-rowActions { display: inline-flex; flex: none; align-items: center; gap: 2px; margin-left: auto; }
-.em-rowActions .em-updateBtn { height: 24px; padding: 0 8px; font-size: 11px; line-height: 16px; gap: 3px; }
-.em-rowActions .em-updateBtn[data-available='true'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent);
-  color: var(--dsw-alias-state-business-primary);
-}
-.em-rowActions .em-updateBtn[data-available='true']:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, transparent);
-}
 .em-rowDesc {
   margin: 0;
   overflow: hidden;

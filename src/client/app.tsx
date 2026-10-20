@@ -88,6 +88,16 @@ interface ActiveTask {
   pollError?: string | undefined
 }
 
+/** Per-page result-panel display state; business results live separately. */
+interface TaskPanelView {
+  dismissed: boolean
+  showItems: boolean
+}
+
+/** The task result belongs to one scope and is never rendered on the other. */
+type ActiveTaskMap = Record<ViewScope, ActiveTask | null>
+type TaskViewMap = Record<ViewScope, TaskPanelView>
+
 /** State of the update confirmation dialog. */
 interface UpdateDialogState {
   open: boolean
@@ -204,7 +214,13 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const [skillFiltersOpen, setSkillFiltersOpen] = useState(savedUi.skillFiltersOpen)
   const [pluginCollapsed, setPluginCollapsed] = useState<ReadonlySet<string>>(() => new Set(savedUi.pluginCollapsed))
   const [skillCollapsed, setSkillCollapsed] = useState<ReadonlySet<string>>(() => new Set(savedUi.skillCollapsed))
-  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null)
+  const [activeTasks, setActiveTasks] = useState<ActiveTaskMap>({ plugins: null, skills: null })
+  const [taskViews, setTaskViews] = useState<TaskViewMap>({
+    plugins: { dismissed: false, showItems: false },
+    skills: { dismissed: false, showItems: false },
+  })
+  const activeTaskIdsRef = useRef<Record<ViewScope, string | undefined>>({ plugins: undefined, skills: undefined })
+  const scopeRef = useRef<ViewScope>(scope)
   const [selected, setSelected] = useState<ExtensionRecord | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [updateDialog, setUpdateDialog] = useState<UpdateDialogState>({ open: false, mode: 'batch', plan: null, loading: false })
@@ -233,6 +249,8 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
       window.removeEventListener('offline', goOffline)
     }
   }, [])
+
+  useEffect(() => { scopeRef.current = scope }, [scope])
 
   /* ---------------------------------------------------------------- *
    * Inventory loading
@@ -331,6 +349,11 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     const reloaded = taskScope === 'plugins'
       ? loadPlugins({ refresh: true, background: true })
       : loadSkills({ refresh: true, background: true })
+    const announce = (text: string, success: boolean): void => {
+      // A completion toast follows the page that owns the task, not whichever
+      // page happens to be selected when the task finishes.
+      if (scopeRef.current === taskScope) setToast({ key: Date.now(), text, success })
+    }
     void reloaded.then(async (payload) => {
       if (origin === 'check' && task.kind === 'check') {
         const freshRecords = payload === undefined ? undefined : recordsOf(payload)
@@ -368,9 +391,9 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
           },
         }))
         if (!complete) {
-          setToast({ key: Date.now(), text: message ?? '检查未完整成功，请重新检查', success: false })
+          announce(message ?? '检查未完整成功，请重新检查', false)
         } else {
-          setToast({ key: Date.now(), text: task.message ?? '检查完成', success: true })
+          announce(task.message ?? '检查完成', true)
         }
         return
       }
@@ -384,92 +407,110 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         })
       }
       if (task.status === 'done') {
-        setToast({ key: Date.now(), text: task.message ?? '任务已完成', success: true })
+        announce(task.message ?? '任务已完成', true)
       } else if (task.status === 'failed') {
-        setToast({
-          key: Date.now(),
-          text: `任务失败：${task.error ?? task.message ?? '请在任务面板查看详情'}`,
-          success: false,
-        })
+        announce(`任务失败：${task.error ?? task.message ?? '请在任务面板查看详情'}`, false)
       }
     })
   }, [loadPlugins, loadSkills, transport])
 
   useEffect(() => {
-    if (activeTask === null) return
-    const current = activeTask.task
-    if (current !== null && (current.status === 'done' || current.status === 'failed' || current.status === 'cancelled')) return
-    const controller = new AbortController()
+    const entries: Array<[ViewScope, ActiveTask]> = []
+    for (const slot of ['plugins', 'skills'] as const) {
+      const active = activeTasks[slot]
+      if (active === null) continue
+      const current = active.task
+      if (current !== null && (current.status === 'done' || current.status === 'failed' || current.status === 'cancelled')) continue
+      entries.push([slot, active])
+    }
+    if (entries.length === 0) return
+    const controllers: AbortController[] = []
     let cancelled = false
-    void transport.waitForTask(activeTask.id, {
-      signal: controller.signal,
-      onTask: (task) => {
-        if (cancelled) return
-        setActiveTask(previous => previous !== null && previous.id === task.id ? { ...previous, task } : previous)
-      },
-    }).then((task) => {
-      if (cancelled) return
-      setActiveTask(previous => previous !== null && previous.id === task.id ? { ...previous, task } : previous)
-      finishTask(task, activeTask.scope, activeTask.origin)
-    }).catch((caught: unknown) => {
-      if (cancelled || isAbortError(caught)) return
-      const message = apiErrorText(caught)
-      // A task snapshot can disappear when the Host plugin graph reloads (e.g.
-      // a Host-side plugin update restarted the manager). Settle the panel as a
-      // failure so the page is no longer "busy", and rescan so the list shows
-      // the real post-recovery state instead of stale running markers.
-      setActiveTask(previous => {
-        if (previous === null || previous.id !== activeTask.id) return previous
-        const failedTask: TaskState | null = previous.task === null
-          ? null
-          : {
-            ...previous.task,
-            status: 'failed',
-            finishedAt: new Date().toISOString(),
-            error: message,
-            message: '无法获取任务状态：Host 可能已重载或任务已过期',
-          }
-        return { ...previous, task: failedTask, pollError: message }
+    for (const [slot, active] of entries) {
+      const controller = new AbortController()
+      controllers.push(controller)
+      void transport.waitForTask(active.id, {
+        signal: controller.signal,
+        onTask: (task) => {
+          if (cancelled || activeTaskIdsRef.current[slot] !== task.id) return
+          setActiveTasks(previous => {
+            const current = previous[slot]
+            if (current === null || current.id !== task.id) return previous
+            return { ...previous, [slot]: { ...current, task } }
+          })
+        },
+      }).then((task) => {
+        if (cancelled || activeTaskIdsRef.current[slot] !== task.id) return
+        setActiveTasks(previous => {
+          const current = previous[slot]
+          if (current === null || current.id !== task.id) return previous
+          return { ...previous, [slot]: { ...current, task } }
+        })
+        finishTask(task, slot, active.origin)
+      }).catch((caught: unknown) => {
+        if (cancelled || isAbortError(caught) || activeTaskIdsRef.current[slot] !== active.id) return
+        const message = apiErrorText(caught)
+        // A task snapshot can disappear when the Host plugin graph reloads.
+        setActiveTasks(previous => {
+          const current = previous[slot]
+          if (current === null || current.id !== active.id) return previous
+          const failedTask: TaskState | null = current.task === null
+            ? null
+            : {
+              ...current.task,
+              status: 'failed',
+              finishedAt: new Date().toISOString(),
+              error: message,
+              message: '无法获取任务状态：Host 可能已重载或任务已过期',
+            }
+          return { ...previous, [slot]: { ...current, task: failedTask, pollError: message } }
+        })
+        void (slot === 'plugins'
+          ? loadPlugins({ refresh: true, background: true })
+          : loadSkills({ refresh: true, background: true }))
       })
-      void (activeTask.scope === 'plugins'
-        ? loadPlugins({ refresh: true, background: true })
-        : loadSkills({ refresh: true, background: true }))
-    })
+    }
     return () => {
       cancelled = true
-      controller.abort()
+      for (const controller of controllers) controller.abort()
     }
-    // Polling is keyed by task id only: status updates flow through setState.
-  }, [activeTask?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Polling is keyed by task ids; per-task status updates flow through state.
+  }, [activeTasks.plugins?.id, activeTasks.skills?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Adopt a task that a previous page load started (Host reports it as running).
+  // Adopt a running task for the selected page after a page reload.
   useEffect(() => {
-    if (activeTask !== null) return
+    if (activeTasks[scope] !== null) return
     const payload = scope === 'plugins' ? readyData(plugins) : readyData(skills)
     const check = payload?.check
     if (check?.running !== true || check.taskId === undefined) return
     let cancelled = false
     void transport.task(check.taskId).then((response) => {
       if (cancelled || response.task === undefined) return
-      if (response.pending === true) {
-        setActiveTask({
-          id: response.task.id,
-          task: response.task,
-          scope,
-          origin: response.task.kind === 'check' ? 'check' : 'update',
-        })
-      }
+      if (response.pending !== true) return
+      const adopted = response.task
+      const actualSlot = adopted.scope === 'plugins' || adopted.scope === 'skills' ? adopted.scope : scope
+      activeTaskIdsRef.current[actualSlot] = adopted.id
+      setActiveTasks(previous => previous[actualSlot] === null
+        ? { ...previous, [actualSlot]: { id: adopted.id, task: adopted, scope: actualSlot, origin: adopted.kind === 'check' ? 'check' : 'update' } }
+        : previous)
+      setTaskViews(previous => ({ ...previous, [actualSlot]: { dismissed: false, showItems: false } }))
     }).catch(() => { /* stale task id: the Host forgot it, nothing to adopt */ })
     return () => { cancelled = true }
-  }, [activeTask, scope, plugins, skills, transport])
+  }, [activeTasks, scope, plugins, skills, transport])
 
   const beginTask = useCallback((task: TaskState, taskScope: ViewScope, origin: 'check' | 'update'): void => {
-    setActiveTask({ id: task.id, task, scope: taskScope, origin })
-    // A cached check can return an already-finished task. The polling effect
-    // intentionally ignores terminal tasks, so settle it here to still apply the
-    // complete-check gate (and its read-only batch plan count).
+    const actualSlot = task.scope === 'plugins' || task.scope === 'skills' ? task.scope : taskScope
+    if (actualSlot !== taskScope) {
+      setActionError('另一类扩展的检查任务正在执行，请等待完成后再试；完成结果会保留在所属页面。')
+    }
+    activeTaskIdsRef.current[actualSlot] = task.id
+    setActiveTasks(previous => ({
+      ...previous,
+      [actualSlot]: { id: task.id, task, scope: actualSlot, origin },
+    }))
+    setTaskViews(previous => ({ ...previous, [actualSlot]: { dismissed: false, showItems: false } }))
     if (task.status === 'done' || task.status === 'failed' || task.status === 'cancelled') {
-      finishTask(task, taskScope, origin)
+      finishTask(task, actualSlot, origin)
     }
   }, [finishTask])
 
@@ -628,15 +669,17 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     }
   }
   const title = scanMetadata(scope, pluginsData, skillsData)
-  const busy = taskIsRunning(activeTask?.task ?? null) || updateBusy || checkingAction
+  const currentTask = activeTasks[scope]
+  const currentTaskView = taskViews[scope]
+  const busy = taskIsRunning(currentTask?.task ?? null) || updateBusy || checkingAction
   const checkingIds = useMemo<ReadonlySet<string>>(() => {
     const ids = new Set<string>()
-    if (activeTask?.origin !== 'check' || activeTask.task === null) return ids
-    for (const item of activeTask.task.items) {
+    if (currentTask?.origin !== 'check' || currentTask.task === null) return ids
+    for (const item of currentTask.task.items) {
       if (item.status === 'running' || item.status === 'pending') ids.add(item.id)
     }
     return ids
-  }, [activeTask])
+  }, [currentTask])
   const reconciliation = activePayload?.reconciliation
   const restartPending = pendingRestartCount(activeRecords)
   const activeSourceOptions = useMemo(() => sourceGroupOptions(activeRecords), [activeRecords])
@@ -651,9 +694,6 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     ]
     return { value: skillWorkspace ?? '', options }
   }, [workspaceItems, skillWorkspace])
-  const multipleFilters = activeFilters.query.trim() !== '' || activeFilters.source !== 'all'
-    || activeFilters.status !== 'all' || activeFilters.range !== 'all'
-
   /* ---------------------------------------------------------------- *
    * Handlers
    * ---------------------------------------------------------------- */
@@ -764,7 +804,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     : skills.phase === 'ready' && scope === 'skills' ? skills.staleError : undefined
   const loading = activePayload === undefined && (scope === 'plugins' ? plugins.phase === 'loading' || plugins.phase === 'idle' : skills.phase === 'loading' || skills.phase === 'idle')
   const error = scope === 'plugins' ? (plugins.phase === 'error' ? plugins.error : undefined) : (skills.phase === 'error' ? skills.error : undefined)
-  const taskInFlight = taskIsRunning(activeTask?.task ?? null)
+  const taskInFlight = taskIsRunning(currentTask?.task ?? null)
 
   return (
     <section className="em-root" aria-label="扩展管理器" ref={rootRef} onKeyDown={onRootKeyDown}>
@@ -870,18 +910,30 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         onOpenDiagnostics={() => { setDiagnosticsOpen(true) }}
       />
 
-      {activeTask === null ? null : activeTask.task === null ? (
+      {currentTask === null || currentTaskView.dismissed ? null : currentTask.task === null ? (
         <div className="em-task">
           <RunningLine text="正在启动任务…" />
         </div>
       ) : (
         <TaskPanel
-          task={activeTask.task}
+          task={currentTask.task}
+          showItems={currentTaskView.showItems}
+          onToggleItems={() => {
+            setTaskViews(previous => ({
+              ...previous,
+              [scope]: { ...previous[scope], showItems: !previous[scope].showItems },
+            }))
+          }}
           onRetryFailed={retryFailed}
-          onDismiss={() => { setActiveTask(null) }}
+          onDismiss={() => {
+            setTaskViews(previous => ({
+              ...previous,
+              [scope]: { ...previous[scope], dismissed: true },
+            }))
+          }}
         />
       )}
-      {activeTask !== null && activeTask.pollError !== undefined ? (
+      {currentTask?.pollError === undefined || currentTaskView.dismissed ? null : (
         <InlineNotice
           tone="danger"
           title="任务状态获取失败"
@@ -890,13 +942,18 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
               <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={refreshActive}>
                 刷新清单
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setActiveTask(null) }}>关闭</Button>
+              <Button variant="ghost" size="sm" onClick={() => {
+                setTaskViews(previous => ({
+                  ...previous,
+                  [scope]: { ...previous[scope], dismissed: true },
+                }))
+              }}>关闭</Button>
             </>
           )}
         >
-          {activeTask.pollError}。Host 可能已重载，任务状态已丢失；刷新清单可查看实际安装状态，中断的更新会由 Host 在下次启动时恢复或回滚。
+          {currentTask.pollError}。Host 可能已重载，任务状态已丢失；刷新清单可查看实际安装状态，中断的更新会由 Host 在下次启动时恢复或回滚。
         </InlineNotice>
-      ) : null}
+      )}
 
       <div
         className="em-panel"
@@ -942,16 +999,12 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
               groups={groups}
               filters={activeFilters}
               collapsed={activeCollapsed}
-              forceOpen={multipleFilters}
+              forceOpen={false}
               totalRecords={activeRecords.length}
               unmanagedRoots={unmanagedRoots}
-              checkingIds={checkingIds}
               collisions={scope === 'skills' ? skillCollisions : EMPTY_COLLISIONS}
-              busy={busy}
               onToggleGroup={toggleGroup}
               onOpenDetails={setSelected}
-              onCheck={(record) => { void runCheck([record.id]) }}
-              onUpdate={(record) => { setSelected(null); void requestPlan('single', [record.id]) }}
               onClearFilters={clearFilters}
               onRefresh={reloadScope}
             />

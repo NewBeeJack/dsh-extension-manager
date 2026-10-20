@@ -18,6 +18,9 @@ import { ProgressBar, RunningLine, cx } from '../ui'
 /** Props of {@link TaskPanel}. */
 export interface TaskPanelProps {
   task: TaskState
+  /** Controlled detail visibility; omitted keeps the component-local state. */
+  showItems?: boolean
+  onToggleItems?: () => void
   /** Ask the Host to update the failed items again. */
   onRetryFailed: (ids: string[]) => void
   onDismiss: () => void
@@ -49,8 +52,10 @@ const ITEM_STATUS_TONES: Record<TaskState['items'][number]['status'], TagTone> =
 }
 
 /** Render the task panel. */
-export function TaskPanel({ task, onRetryFailed, onDismiss }: TaskPanelProps): ReactNode {
-  const [showItems, setShowItems] = useState(false)
+export function TaskPanel({ task, showItems, onToggleItems, onRetryFailed, onDismiss }: TaskPanelProps): ReactNode {
+  const [localShowItems, setLocalShowItems] = useState(false)
+  const itemsOpen = showItems ?? localShowItems
+  const toggleItems = onToggleItems ?? (() => { setLocalShowItems(value => !value) })
   const running = task.status === 'queued' || task.status === 'running'
   const failedItems = task.items.filter(item => item.status === 'failed')
   const tone = task.status === 'failed' ? 'danger' : task.status === 'done' ? 'success' : task.status === 'cancelled' ? 'neutral' : 'info'
@@ -135,12 +140,12 @@ export function TaskPanel({ task, onRetryFailed, onDismiss }: TaskPanelProps): R
           <button
             type="button"
             className="em-taskItemsToggle"
-            aria-expanded={showItems}
-            onClick={() => { setShowItems(value => !value) }}
+            aria-expanded={itemsOpen}
+            onClick={toggleItems}
           >
-            {showItems ? '收起明细' : `查看明细（${String(task.items.length)} 项）`}
+            {itemsOpen ? '收起明细' : `查看明细（${String(task.items.length)} 项）`}
           </button>
-          {showItems ? (
+          {itemsOpen ? (
             <ul className="em-taskItems">
               {task.items.map(item => (
                 <li key={item.id} className={cx('em-taskItem', item.status === 'running' && 'is-running')} data-status={item.status}>
