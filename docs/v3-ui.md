@@ -14,6 +14,6 @@
 
 ## Local verification
 
-- 129/130 tests, typecheck and build pass.
+- 131/131 tests, typecheck and build pass.
 - Real browser: context real icon, default fallback icons, full path copy/clipboard readback, summary collapse/expand, filter dot, header diagnostics, group toggles.
 - Responsive: 1200 px single toolbar; 760/600 layouts reflow without page horizontal overflow; 420 px uses stacked stats and local group scrolling.

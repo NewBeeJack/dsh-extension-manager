@@ -976,6 +976,9 @@ export const CSS = `
 }
 .em-extIcon svg { width: 24px; height: 24px; display: block; }
 .em-extIconImage { width: 100%; height: 100%; padding: 5px; object-fit: contain; background: transparent; }
+/* The supplied default PNG already contains its complete rounded tile. */
+.em-extIcon.em-extIconDefault { border: 0; background: transparent; border-radius: 0; }
+.em-extIconDefault .em-defaultPluginImage { display: block; width: 100%; height: 100%; object-fit: contain; }
 .em-rowBody { gap: 3px; }
 .em-rowTop { gap: 7px; min-height: 24px; }
 .em-rowName { font-size: 14px; line-height: 20px; }

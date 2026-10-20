@@ -4,6 +4,7 @@
  */
 import { useState, type ReactNode } from 'react'
 
+import { DEFAULT_PLUGIN_ICON } from '../default-plugin-icon'
 import { isSafeIconDataUrl } from '../icon-safety'
 
 /** Local default plugin glyph: white solid puzzle on the shared light-blue plate. */
@@ -31,22 +32,47 @@ function SkillGlyph(): ReactNode {
 /** Render one extension icon inside a fixed, accessible container. */
 export function ExtensionIcon({ kind, icon }: { kind: 'plugin' | 'skill'; icon?: string }): ReactNode {
   const [failed, setFailed] = useState(false)
+  const [defaultFailed, setDefaultFailed] = useState(false)
   const candidate = icon?.trim()
   const usable = isSafeIconDataUrl(candidate) && !failed
+  if (usable) {
+    return (
+      <span className="em-extIcon" data-kind="plugin" aria-hidden="true">
+        <img
+          className="em-extIconImage"
+          src={candidate}
+          alt=""
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => { setFailed(true) }}
+        />
+      </span>
+    )
+  }
+  if (kind === 'skill') {
+    return (
+      <span className="em-extIcon" data-kind="skill" aria-hidden="true">
+        <SkillGlyph />
+      </span>
+    )
+  }
+  if (!defaultFailed) {
+    return (
+      <span className="em-extIcon em-extIconDefault" data-kind="plugin" data-default-plugin="true" aria-hidden="true">
+        <img
+          className="em-defaultPluginImage"
+          src={DEFAULT_PLUGIN_ICON}
+          alt=""
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => { setDefaultFailed(true) }}
+        />
+      </span>
+    )
+  }
   return (
-    <span className="em-extIcon" data-kind={kind} aria-hidden="true">
-      {usable
-        ? (
-          <img
-            className="em-extIconImage"
-            src={candidate}
-            alt=""
-            draggable={false}
-            referrerPolicy="no-referrer"
-            onError={() => { setFailed(true) }}
-          />
-        )
-        : kind === 'skill' ? <SkillGlyph /> : <PluginGlyph />}
+    <span className="em-extIcon" data-kind="plugin" aria-hidden="true">
+      <PluginGlyph />
     </span>
   )
 }

@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] — 2026-10-21
+
+Default Plugin icon replacement; **not published** to npm/GitHub.
+
+- Replaced the no-self-icon Plugin fallback with the supplied transparent network-node PNG, cropped to a square and embedded as a local 128×128 RGBA asset.
+- Default Plugin branch uses a borderless/transparent outer container because the PNG carries its own rounded tile; official icons and the Skills document fallback are unchanged.
+- Kept the old puzzle SVG only as the final fallback when the new default image fails to load; added an asset integrity test.
+- 131 tests, typecheck and build pass.
+
 ## [0.4.4] — 2026-10-21
 
 Update-check skipped-item reporting; **not published** to npm/GitHub.
