@@ -37,6 +37,7 @@ import { Toolbar } from './components/toolbar'
 import { UpdateDialog, type UpdateDialogMode } from './components/update-dialog'
 import {
   buildGroups,
+  checkTaskIsComplete,
   defaultFilters,
   formatClock,
   formatDateTime,
@@ -103,6 +104,35 @@ interface ToastState {
   key: number
   text: string
   success: boolean
+}
+
+/** Result of one completed check, tied to the inventory shape it was computed from. */
+interface CheckViewState {
+  /** True only when the whole check finished successfully. */
+  valid: boolean
+  /** Stable inventory signature captured after the check. */
+  signature: string
+  /** Number of entries the existing batch plan would run without confirmation. */
+  batchCount?: number
+  /** Lightweight result text for the toolbar when the batch button stays hidden. */
+  message?: string
+}
+
+/** Identity/version/eligibility snapshot; search and filtering do not affect it. */
+function recordsSignature(records: readonly ExtensionRecord[]): string {
+  return records.map(record => [
+    record.id,
+    record.version.current ?? '',
+    record.version.available ?? '',
+    record.version.status,
+    record.actions.canUpdate ? '1' : '0',
+    record.actions.requiresConfirmation === true ? '1' : '0',
+    record.source.kind,
+    record.source.spec ?? '',
+    record.source.ref ?? '',
+    record.source.commit ?? '',
+    record.localModification.state,
+  ].join('')).sort().join('')
 }
 
 /** Read data from a settled load state. */
@@ -180,6 +210,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   const [updateDialog, setUpdateDialog] = useState<UpdateDialogState>({ open: false, mode: 'batch', plan: null, loading: false })
   const [updateBusy, setUpdateBusy] = useState(false)
   const [checkingAction, setCheckingAction] = useState(false)
+  const [checkStates, setCheckStates] = useState<Partial<Record<ViewScope, CheckViewState>>>({})
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [online, setOnline] = useState<boolean>(() => typeof navigator === 'undefined' ? true : navigator.onLine)
@@ -206,14 +237,14 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
   /* ---------------------------------------------------------------- *
    * Inventory loading
    * ---------------------------------------------------------------- */
-  const loadPlugins = useCallback(async (options: { refresh?: boolean; background?: boolean } = {}): Promise<void> => {
+  const loadPlugins = useCallback(async (options: { refresh?: boolean; background?: boolean } = {}): Promise<PluginInventoryPayload | undefined> => {
     const key = 'plugins' as const
     const cached = readInventoryCache<PluginInventoryPayload>(key)
     if (cached !== undefined) {
       setPlugins(current => current.phase === 'ready'
         ? current
         : { phase: 'ready', data: cached.data, loadedAt: cached.loadedAt })
-      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return
+      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return cached.data
     }
     if (options.background !== true) {
       setPlugins(current => current.phase === 'ready' ? { ...current, staleError: undefined } : { phase: 'loading' })
@@ -222,15 +253,17 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     const request = beginInventoryRequest(key)
     try {
       const payload = await transport.plugins({ refresh: options.refresh === true, signal: request.signal })
-      if (!request.isCurrent()) return
+      if (!request.isCurrent()) return undefined
       writeInventoryCache(key, payload)
       setPlugins({ phase: 'ready', data: payload, loadedAt: Date.now() })
+      return payload
     } catch (caught) {
-      if (!request.isCurrent() || isAbortError(caught)) return
+      if (!request.isCurrent() || isAbortError(caught)) return undefined
       const message = apiErrorText(caught)
       setPlugins(current => current.phase === 'ready'
         ? { ...current, staleError: message }
         : { phase: 'error', error: caught instanceof ApiError ? caught : new ApiError('invalid', message) })
+      return undefined
     } finally {
       if (request.isCurrent()) setPluginsRefreshing(false)
     }
@@ -238,7 +271,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
 
   const loadSkills = useCallback(async (
     options: { refresh?: boolean; background?: boolean; workspace?: string | undefined } = {},
-  ): Promise<void> => {
+  ): Promise<SkillsInventoryPayload | undefined> => {
     const workspace = options.workspace ?? skillWorkspaceRef.current
     const key = inventoryCacheKey('skills', workspace)
     const cached = readInventoryCache<SkillsInventoryPayload>(key)
@@ -246,7 +279,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
       setSkills(current => current.phase === 'ready'
         ? current
         : { phase: 'ready', data: cached.data, loadedAt: cached.loadedAt })
-      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return
+      if (options.refresh !== true && Date.now() - cached.loadedAt < INVENTORY_FRESH_MS) return cached.data
     }
     if (options.background !== true) {
       setSkills(current => current.phase === 'ready' ? { ...current, staleError: undefined } : { phase: 'loading' })
@@ -259,15 +292,17 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         ...(workspace === undefined ? {} : { workspace }),
         signal: request.signal,
       })
-      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current) return
+      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current) return undefined
       writeInventoryCache(key, payload)
       setSkills({ phase: 'ready', data: payload, loadedAt: Date.now() })
+      return payload
     } catch (caught) {
-      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current || isAbortError(caught)) return
+      if (!request.isCurrent() || workspace !== skillWorkspaceRef.current || isAbortError(caught)) return undefined
       const message = apiErrorText(caught)
       setSkills(current => current.phase === 'ready'
         ? { ...current, staleError: message }
         : { phase: 'error', error: caught instanceof ApiError ? caught : new ApiError('invalid', message) })
+      return undefined
     } finally {
       if (request.isCurrent() && workspace === skillWorkspaceRef.current) setSkillsRefreshing(false)
     }
@@ -293,19 +328,72 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     // A finished check/update changes the records' cached statuses; always
     // re-read both the Host inventory and the check cache instead of reusing a
     // fresh-looking snapshot from before the task.
-    void (taskScope === 'plugins'
+    const reloaded = taskScope === 'plugins'
       ? loadPlugins({ refresh: true, background: true })
-      : loadSkills({ refresh: true, background: true }))
-    if (task.status === 'done') {
-      setToast({ key: Date.now(), text: task.message ?? '任务已完成', success: true })
-    } else if (task.status === 'failed') {
-      setToast({
-        key: Date.now(),
-        text: `任务失败：${task.error ?? task.message ?? '请在任务面板查看详情'}`,
-        success: false,
-      })
-    }
-  }, [loadPlugins, loadSkills])
+      : loadSkills({ refresh: true, background: true })
+    void reloaded.then(async (payload) => {
+      if (origin === 'check' && task.kind === 'check') {
+        const freshRecords = payload === undefined ? undefined : recordsOf(payload)
+        const failedItems = task.items.filter(item => item.status === 'failed')
+        let complete = checkTaskIsComplete(task) && freshRecords !== undefined
+        let message = complete
+          ? undefined
+          : task.status === 'failed'
+            ? `检查失败：${task.error ?? task.message ?? '请重试'}`
+            : task.status === 'cancelled'
+              ? '检查已取消，请重新检查。'
+              : freshRecords === undefined
+                ? '检查完成，但清单刷新失败，请刷新列表后重试。'
+                : `检查未完整成功${failedItems.length === 0 ? '' : `（${String(failedItems.length)} 项失败）`}，请重新检查。`
+        let batchCount: number | undefined
+        if (complete && freshRecords !== undefined) {
+          try {
+            // Use the existing read-only plan to count entries that the batch
+            // confirmation flow would actually execute without confirmation.
+            const plan = await transport.updatePlan({ scope: taskScope })
+            batchCount = plan.entries.filter(entry => entry.eligible && entry.requiresConfirmation !== true).length
+            if (batchCount === 0) message = '检查完成，暂无可批量更新的项目。'
+          } catch (caught) {
+            complete = false
+            message = `检查完成，但无法生成批量更新计划：${apiErrorText(caught)}`
+          }
+        }
+        setCheckStates(previous => ({
+          ...previous,
+          [taskScope]: {
+            valid: complete,
+            signature: freshRecords === undefined ? '' : recordsSignature(freshRecords),
+            ...(batchCount === undefined ? {} : { batchCount }),
+            ...(message === undefined ? {} : { message }),
+          },
+        }))
+        if (!complete) {
+          setToast({ key: Date.now(), text: message ?? '检查未完整成功，请重新检查', success: false })
+        } else {
+          setToast({ key: Date.now(), text: task.message ?? '检查完成', success: true })
+        }
+        return
+      }
+      if (origin === 'update') {
+        // An update changes versions and eligibility; never keep an old batch
+        // result around even if the refreshed inventory is not available yet.
+        setCheckStates(previous => {
+          const next = { ...previous }
+          delete next[taskScope]
+          return next
+        })
+      }
+      if (task.status === 'done') {
+        setToast({ key: Date.now(), text: task.message ?? '任务已完成', success: true })
+      } else if (task.status === 'failed') {
+        setToast({
+          key: Date.now(),
+          text: `任务失败：${task.error ?? task.message ?? '请在任务面板查看详情'}`,
+          success: false,
+        })
+      }
+    })
+  }, [loadPlugins, loadSkills, transport])
 
   useEffect(() => {
     if (activeTask === null) return
@@ -377,10 +465,22 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
 
   const beginTask = useCallback((task: TaskState, taskScope: ViewScope, origin: 'check' | 'update'): void => {
     setActiveTask({ id: task.id, task, scope: taskScope, origin })
-  }, [])
+    // A cached check can return an already-finished task. The polling effect
+    // intentionally ignores terminal tasks, so settle it here to still apply the
+    // complete-check gate (and its read-only batch plan count).
+    if (task.status === 'done' || task.status === 'failed' || task.status === 'cancelled') {
+      finishTask(task, taskScope, origin)
+    }
+  }, [finishTask])
 
   const runCheck = useCallback(async (ids?: string[]): Promise<void> => {
     setActionError(null)
+    // The old count must never authorize a new batch while this check runs.
+    setCheckStates(previous => {
+      const next = { ...previous }
+      delete next[scope]
+      return next
+    })
     setCheckingAction(true)
     try {
       const task = await transport.check({ scope, ...(ids === undefined ? {} : { ids }) })
@@ -463,6 +563,12 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
     [skillsData],
   )
   const activeRecords = scope === 'plugins' ? pluginRecords : skillRecords
+  const activeSignature = useMemo(() => recordsSignature(activeRecords), [activeRecords])
+  const activeCheckState = checkStates[scope]
+  const checkValid = activeCheckState?.valid === true && activeCheckState.signature === activeSignature
+  const checkNotice = activeCheckState !== undefined && activeCheckState.signature === activeSignature
+    ? activeCheckState.message
+    : undefined
   const unmanagedRoots = useMemo(() => unmanagedRootKeys(skillsData), [skillsData])
   const skillCollisions = useMemo<ReadonlyMap<string, number>>(() => {
     const counts = new Map<string, number>()
@@ -755,6 +861,9 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         taskRunning={taskInFlight || updateBusy}
         refreshing={scope === 'plugins' ? pluginsRefreshing : skillsRefreshing}
         checking={checkingAction}
+        checkValid={checkValid}
+        checkNotice={checkNotice}
+        batchCount={checkValid ? (activeCheckState?.batchCount ?? 0) : 0}
         onRefresh={refreshActive}
         onCheckAll={() => { void runCheck() }}
         onUpdateAll={() => { void requestPlan('batch') }}

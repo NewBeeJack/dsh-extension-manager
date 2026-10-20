@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-10-20
+
+Toolbar V2 local layout/build; **not published** to npm/GitHub.
+
+- Search, filter and the white-outline `刷新列表` / `检查更新` actions plus the conditional black `更新全部（N）` now share one measured toolbar row when the real content width fits; below that the right action group wraps as a unit and scrolls only when it cannot fit.
+- Buttons use natural content widths, a common 34 px height and non-wrapping labels; update-all count comes from the existing read-only batch plan (`eligible && !requiresConfirmation`), not from filtered records.
+- Update-all stays hidden until the current scope's check finishes fully successfully; failed/partial/network-failed/plan-failed checks keep it hidden with a precise notice. Per-scope result signatures are invalidated when the inventory identity or update eligibility changes.
+- Tests: 119 passing (4 toolbar/check-state tests).
+
 ## [0.3.0] — 2026-10-20
 
 Local V6 details-architecture update; **not published** to npm/GitHub.

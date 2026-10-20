@@ -21,6 +21,7 @@ import type {
   SkillsInventoryPayload,
   SourceKind,
   SourceTrust,
+  TaskState,
   UpdatePlanEntry,
   UpdateStatus,
   VirtualSkillRecord,
@@ -187,6 +188,19 @@ export function statusViewOf(record: ExtensionRecord, checking = false): StatusV
     return { label: `可更新 ${record.version.available}`, tone: base.tone, dot: base.dot }
   }
   return base
+}
+
+/** True only when a check task finished successfully for every attempted item. */
+export function checkTaskIsComplete(task: Pick<TaskState, 'status' | 'items' | 'message'>): boolean {
+  return task.status === 'done'
+    && task.items.every(item => item.status !== 'failed')
+    && task.message?.includes('网络失败') !== true
+}
+
+/** Exact batch-action label shared by the toolbar and its tests. */
+export function formatUpdateAllLabel(count: number): string {
+  const safe = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0
+  return `更新全部（${String(safe)}）`
 }
 
 /* ------------------------------------------------------------------ *

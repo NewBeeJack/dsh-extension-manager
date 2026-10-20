@@ -148,8 +148,30 @@ export const CSS = `
  * Toolbar
  * ---------------------------------------------------------------- */
 .em-toolbar { display: flex; flex-direction: column; gap: 8px; }
-.em-toolRow { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
-.em-search { flex: 1 1 150px; min-width: 120px; }
+.em-toolRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.em-toolRowSingle { flex-wrap: nowrap; }
+.em-search { flex: 1 1 0; min-width: min(150px, 100%); }
+.em-toolActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.em-toolbarAction {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  white-space: nowrap;
+}
+.em-toolbarAction,
+.em-toolbarAction * { white-space: nowrap; }
 .em-toolSpacer { flex: 1 1 auto; min-width: 0; }
 .em-toolHint { margin: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); }
 .em-filterPanel {

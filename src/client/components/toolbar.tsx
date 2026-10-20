@@ -6,7 +6,7 @@
  * live in the collapsible panel. Every disabled control states why, and the
  * panel repeats the two bulk-action reasons.
  */
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Button,
   IconChecklistOutlineRegular,
@@ -18,7 +18,7 @@ import {
   Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  isSafeUpdate,
+  formatUpdateAllLabel,
   SORT_OPTIONS,
   STATUS_OPTIONS,
   type ExtensionRecord,
@@ -26,7 +26,7 @@ import {
   type RecordFilters,
   type ViewScope,
 } from '../model'
-import { cx, IconAction, MenuSelect, type MenuSelectOption } from '../ui'
+import { MenuSelect, type MenuSelectOption } from '../ui'
 
 /** Props of the toolbar. */
 export interface ToolbarProps {
@@ -56,6 +56,12 @@ export interface ToolbarProps {
   taskRunning: boolean
   refreshing: boolean
   checking: boolean
+  /** True only for a completed, fully successful check of the current scope. */
+  checkValid: boolean
+  /** Number of items the existing batch plan can execute without confirmation. */
+  batchCount: number
+  /** Lightweight result/error text shown below the toolbar. */
+  checkNotice?: string | undefined
   onRefresh: () => void
   onCheckAll: () => void
   onUpdateAll: () => void
@@ -86,26 +92,20 @@ function rangeOptionsOf(options: readonly RangeOption[]): MenuSelectOption[] {
 export function Toolbar({
   scope, filters, onFiltersChange, sourceOptions, rangeOptions, workspaceSelector, records,
   filtersOpen, onToggleFilters, matchedCount, totalCount, onClearFilters,
-  ready, taskRunning, refreshing, checking, onRefresh, onCheckAll, onUpdateAll, onOpenDiagnostics,
+  ready, taskRunning, refreshing, checking, checkValid, batchCount, checkNotice,
+  onRefresh, onCheckAll, onUpdateAll, onOpenDiagnostics,
 }: ToolbarProps): ReactNode {
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const actionsRef = useRef<HTMLDivElement | null>(null)
+  const [singleLine, setSingleLine] = useState(true)
   const checkable = records.filter(record => record.actions.canCheck).length
-  const safeUpdates = records.filter(record => isSafeUpdate(record)).length
-  const checked = records.filter(record => record.version.status !== 'unchecked').length
   const total = records.length
   const activeFilterCount = (filters.query.trim() === '' ? 0 : 1)
     + (filters.source === 'all' ? 0 : 1)
     + (filters.status === 'all' ? 0 : 1)
     + (filters.range === 'all' ? 0 : 1)
 
-  const updateAllReason = !ready
-    ? '清单尚未加载完成'
-    : taskRunning
-      ? '有任务正在执行，完成后才能开始新的更新'
-      : safeUpdates === 0
-        ? checked === 0
-          ? '还没有检查过更新；请先点击「检查全部更新」'
-          : '没有可安全自动更新的项；需要确认或覆盖本地修改的项目请逐项更新'
-        : undefined
+  const showUpdateAll = ready && !taskRunning && !refreshing && checkValid && batchCount > 0
   const checkAllReason = !ready
     ? '清单尚未加载完成'
     : taskRunning
@@ -121,21 +121,50 @@ export function Toolbar({
     ? '任务执行中，完成后再刷新清单'
     : undefined
 
-  const hint = !ready || taskRunning || (checking && updateAllReason === undefined)
-    ? undefined
-    : updateAllReason !== undefined
-      ? `更新全部：${updateAllReason}`
-      : checkAllReason !== undefined
-        ? `检查全部更新：${checkAllReason}`
-        : undefined
+  const hint = !ready
+    ? '检查更新：清单尚未加载完成'
+    : taskRunning
+      ? '有任务正在执行，完成后才能开始新的检查或更新'
+      : checking
+        ? '正在检查更新…'
+        : checkNotice !== undefined
+          ? checkNotice
+          : checkValid && batchCount === 0
+            ? '检查完成，暂无可批量更新的项目。'
+            : checkAllReason !== undefined
+              ? `检查更新：${checkAllReason}`
+              : undefined
 
   const update = (patch: Partial<RecordFilters>): void => {
     onFiltersChange({ ...filters, ...patch })
   }
 
+  // Measure the real content width rather than using a viewport breakpoint.
+  // If the minimum search width plus the natural button widths fits, pin the
+  // row to one line; otherwise let the right-hand action group wrap as a unit.
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    const actions = actionsRef.current
+    if (row === null || actions === null) return
+    const measure = (): void => {
+      const search = row.querySelector<HTMLElement>('.em-search')
+      const filter = row.querySelector<HTMLElement>('button.em-toolbarAction')
+      if (search === null || filter === null) return
+      const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0
+      const searchMin = Number.parseFloat(getComputedStyle(search).minWidth) || 150
+      const required = searchMin + filter.getBoundingClientRect().width + actions.scrollWidth + gap * 2
+      setSingleLine(required <= row.clientWidth + 0.5)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    observer.observe(actions)
+    return () => { observer.disconnect() }
+  }, [showUpdateAll, batchCount, ready, taskRunning, refreshing, checkValid])
+
   return (
     <div className="em-toolbar">
-      <div className="em-toolRow">
+      <div className={singleLine ? "em-toolRow em-toolRowSingle" : "em-toolRow"} ref={rowRef}>
         <Input
           type="search"
           className="em-search"
@@ -151,44 +180,53 @@ export function Toolbar({
           type="button"
           variant="outline"
           size="sm"
+          className="em-toolbarAction"
           icon={<IconSlidersTwoOutlineRegular size={14} />}
           aria-expanded={filtersOpen}
-          title="展开来源、状态、范围与排序筛选"
+          title={activeFilterCount === 0 ? '展开来源、状态、范围与排序筛选' : `已启用 ${String(activeFilterCount)} 个筛选条件`}
           onClick={onToggleFilters}
         >
-          {activeFilterCount === 0 ? '筛选' : `筛选（${String(activeFilterCount)}）`}
+          筛选
         </Button>
-        <IconAction
-          label="刷新清单"
-          disabled={refreshReason !== undefined}
-          disabledReason={refreshReason}
-          busy={refreshing}
-          onClick={onRefresh}
-        >
-          <IconRefreshOutlineRegular size={14} />
-        </IconAction>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          icon={<IconChecklistOutlineRegular size={14} />}
-          disabled={checkAllReason !== undefined}
-          title={checkAllReason ?? '检查所有可检查项的远程版本'}
-          onClick={onCheckAll}
-        >
-          检查全部更新
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          size="sm"
-          icon={<IconDownloadOutlineRegular size={14} />}
-          disabled={updateAllReason !== undefined}
-          title={updateAllReason ?? '仅更新可安全自动完成的项目，需要确认的项目会跳过'}
-          onClick={onUpdateAll}
-        >
-          {safeUpdates > 0 ? `更新全部（${String(safeUpdates)}）` : '更新全部'}
-        </Button>
+        <div className="em-toolActions" ref={actionsRef}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="em-toolbarAction"
+            icon={<IconRefreshOutlineRegular size={14} />}
+            disabled={refreshReason !== undefined}
+            title={refreshReason ?? '重新读取当前类别的本地安装清单'}
+            onClick={onRefresh}
+          >
+            刷新列表
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="em-toolbarAction"
+            icon={<IconChecklistOutlineRegular size={14} />}
+            disabled={checkAllReason !== undefined}
+            title={checkAllReason ?? '检查当前类别的远程版本'}
+            onClick={onCheckAll}
+          >
+            检查更新
+          </Button>
+          {showUpdateAll ? (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              className="em-toolbarAction"
+              icon={<IconDownloadOutlineRegular size={14} />}
+              title="打开批量更新计划，仅自动执行可安全批量更新的项目"
+              onClick={onUpdateAll}
+            >
+              {formatUpdateAllLabel(batchCount)}
+            </Button>
+          ) : null}
+        </div>
       </div>
       {filtersOpen ? (
         <div className="em-filterPanel">

@@ -4,13 +4,15 @@
 
 - 页面入口：DSH Web GUI 的 **Settings → 扩展管理器**（内置设置分区，不是独立网页或独立端口）。
 - 兼容基线：**DSH 0.2.1-rc.2**（Windows 环境实测，见 §11）。
-- 当前版本：0.3.0（本地 V6 详情页精简版；npm 上的 0.1.1 是上一版，本次未远程发布）。管理器自身不支持页面内自更新（见 §8.6）。
+- 当前版本：0.3.1（本地工具栏 V2 版；npm 上的 0.1.1 是上一版，本次未远程发布）。管理器自身不支持页面内自更新（见 §8.6）。
 - 所有数据来自 Host 侧真实读取：`ctx.pluginManager.listBundles()` / `listPlugins()`、`ctx.skills.snapshot()`、`skill-filesystem` 运行时配置、profile 清单与 pnpm 锁文件、npm Registry、GitHub、`git ls-remote`。
 - 更新通过持久化事务执行：备份 → 下载 → 暂存校验 → 安装 → 读回校验 → 需要时等待重启；失败自动回滚。
 
-> 本文档对应 **v0.3.0**（DSH 0.2.1-rc.2 基线，V6 本地优化版）。功能描述全部取自本仓库源码；测试与验收方法见 [docs/testing.md](docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前确实不提供的能力在 §9 如实列出。
+> 本文档对应 **v0.3.1**（DSH 0.2.1-rc.2 基线，V6 本地优化版）。功能描述全部取自本仓库源码；测试与验收方法见 [docs/testing.md](docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前确实不提供的能力在 §9 如实列出。
 
-**V6 详情页优化（0.3.0）**：Plugins/Skills 详情默认只保留基本信息、GitHub 仓库、安装位置、更新情况和默认折叠的高级信息；新增只读仓库解析（package.json/git/GitHub SSH/Monorepo 子目录，冲突不猜测）；其余 `npm test` 115 项、布局与真实 UI 验收见下文。
+**工具栏 V2（0.3.1）**：搜索、筛选、刷新列表、检查更新与条件显示的更新全部（N）按真实内容宽度决定单行；按钮自然宽度、统一 34px 高度、文字不换行；N 来自现有只读批量更新计划，完整检查成功前不显示。
+
+**V6 详情页优化（0.3.0）**：Plugins/Skills 详情默认只保留基本信息、GitHub 仓库、安装位置、更新情况和默认折叠的高级信息；新增只读仓库解析（package.json/git/GitHub SSH/Monorepo 子目录，冲突不猜测）；其余 `npm test` 119 项、布局与真实 UI 验收见下文。
 
 **V5 基础能力**：三项主统计（已安装/可更新/异常，详情可展开）；单行工具栏 + 折叠筛选面板；更紧凑三行卡片；统一 UpdateCoordinator（任务准入、取消、结构化任务日志、重启任务日志）；Skills 同名副本徽标/候选详情/作用域未验证提示；按 scope/workspace 的库存缓存、搜索/筛选/排序/折叠/滚动位置持久化与 100 行以上按需渲染。本次只在本地构建与安装，未发布到 npm/GitHub。
 
@@ -80,10 +82,10 @@ Host 半被打包成自包含 ESM（`yaml`、`semver`、`undici` 等 CJS 依赖�
 ### 3.2 打包
 
 ```bash
-npm pack     # 产出 dsh-extension-manager-0.3.0.tgz
+npm pack     # 产出 dsh-extension-manager-0.3.1.tgz
 ```
 
-标准安装包：运行 `npm pack` 生成 `dsh-extension-manager-0.3.0.tgz`；`package.json` 的 `files` 字段声明了 `lib`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`LICENSE`、`docs/architecture.md`、`docs/dialog-layout.md`。仓库已包含 MIT `LICENSE`（完整许可文本）。
+标准安装包：运行 `npm pack` 生成 `dsh-extension-manager-0.3.1.tgz`；`package.json` 的 `files` 字段声明了 `lib`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`LICENSE`、`docs/architecture.md`、`docs/dialog-layout.md`。仓库已包含 MIT `LICENSE`（完整许可文本）。
 
 ### 3.3 安装到 Profile
 
@@ -92,10 +94,10 @@ npm pack     # 产出 dsh-extension-manager-0.3.0.tgz
 ```bash
 # 方式 A（推荐）：从 npm Registry 按名称安装
 dsh plugin --profile web add dsh-extension-manager
-# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.3.0
+# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.3.1
 
 # 方式 B：从打包产物安装
-dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.3.0.tgz"
+dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.3.1.tgz"
 
 # 方式 C：开发调试用 link 安装
 dsh plugin --profile web add "link:<项目绝对路径>"
@@ -425,7 +427,7 @@ npm test             # 等价于 node --test（package.json 的 test 脚本）
 node --test          # 全部测试（node 原生 TS 运行，无需构建）
 ```
 
-当前测试（`npm test`：115 个用例全部通过，约 1.5s）：
+当前测试（`npm test`：119 个用例全部通过，约 1.5s）：
 
 | 文件 | 覆盖 |
 | --- | --- |
@@ -521,7 +523,7 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 
 **构建与测试（可重复）**
 
-- `npm test`（= `node --test`）：115 个用例全部通过（约 1.5s）。
+- `npm test`（= `node --test`）：119 个用例全部通过（约 1.5s）。
 - `npx tsc --noEmit`：0 错误。
 - `node scripts/build.mjs`：成功生成 `lib/index.js`（Host ESM bundle）与 `lib/client.js`（Web client bundle）；`import('./lib/index.js')` 可正常加载（`apply` 为函数）。
 - 真实 registry 抽样：`dsh-context` 当前 `0.73.0` → `up-to-date`；`0.60.0` → `update-available`（与 DSH `0.2.1-rc.2` 兼容）；`@michengai/dsh-skills-manager 1.2.5` → `up-to-date`；`dsh-better-sidebar`、`@eddyskywalker/dsh-chatgpt-subscription` 旧版本 → `update-available`；伪造旧 DSH 版本时同一批包 → `incompatible-update` 并列出未满足的 `engines.dsh`/peer 依赖。
