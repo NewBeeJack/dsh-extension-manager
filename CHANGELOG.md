@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] — 2026-10-20
+
+Final acceptance hardening; **not published** to npm/GitHub.
+
+- Reject ambiguous `resolvedPath` fallback for list installation directories. The list now trusts only `paths.installDir`, or the verified parent of `manifestPath`; virtual/runtime records remain path-unknown.
+- Moved icon data-URL validation into a testable module; added path/icon regression tests (126 total).
+- T21 isolated Host plan now measured at 5.13s and validated end-to-end through the V3 UI including cancel; previous 40s timeout was not reproducible and no timeout code was changed.
+- Added controlled verification for partial/overall check failure, V3 async switching, clipboard failure and icon load failure.
+
 ## [0.4.0] — 2026-10-20
 
 Local V3 interface refresh; **not published** to npm/GitHub.

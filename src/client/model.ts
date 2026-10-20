@@ -294,17 +294,26 @@ export function recordDescription(record: ExtensionRecord): string {
   return ''
 }
 
-/** The most useful single path for the list row. */
-/** Local installation instance directory used by the list's third line. */
+/** Parent directory of a verified manifest file, without a Node path import. */
+export function manifestParentDirectory(manifestPath: string): string | undefined {
+  const clean = manifestPath.trim()
+  const cut = Math.max(clean.lastIndexOf(String.fromCharCode(92)), clean.lastIndexOf('/'))
+  return cut > 0 ? clean.slice(0, cut) : undefined
+}
+
+/**
+ * Local installation instance directory used by the list's third line.
+ *
+ * `PathInfo.installDir` is the directory field and is preferred. When it is
+ * absent, only a verified manifest path may supply its parent directory;
+ * `resolvedPath` is a link/file target and is not assumed to be a directory.
+ */
 export function recordInstallDirectory(record: ExtensionRecord): string | undefined {
   if (isVirtualSkill(record)) return undefined
   const paths = record.paths
-  if (paths.installDir !== undefined && paths.installDir !== '') return paths.installDir
-  if (paths.resolvedPath !== undefined && paths.resolvedPath !== '') return paths.resolvedPath
-  if (isSkill(record) && paths.manifestPath !== undefined && paths.manifestPath !== '') {
-    const clean = paths.manifestPath
-    const cut = Math.max(clean.lastIndexOf(String.fromCharCode(92)), clean.lastIndexOf('/'))
-    if (cut > 0) return clean.slice(0, cut)
+  if (paths.installDir !== undefined && paths.installDir.trim() !== '') return paths.installDir
+  if (paths.manifestPath !== undefined && paths.manifestPath.trim() !== '') {
+    return manifestParentDirectory(paths.manifestPath)
   }
   return undefined
 }

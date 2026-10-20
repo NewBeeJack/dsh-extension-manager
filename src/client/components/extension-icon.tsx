@@ -4,8 +4,7 @@
  */
 import { useState, type ReactNode } from 'react'
 
-/** A self icon is accepted only as an embedded raster/SVG image data URL. */
-const SAFE_ICON = /^data:image\/(?:png|jpe?g|webp|gif|svg\+xml);base64,[a-z0-9+/=\s]+$/iu
+import { isSafeIconDataUrl } from '../icon-safety'
 
 /** Local default plugin glyph: white solid puzzle on the shared light-blue plate. */
 function PluginGlyph(): ReactNode {
@@ -33,7 +32,7 @@ function SkillGlyph(): ReactNode {
 export function ExtensionIcon({ kind, icon }: { kind: 'plugin' | 'skill'; icon?: string }): ReactNode {
   const [failed, setFailed] = useState(false)
   const candidate = icon?.trim()
-  const usable = candidate !== undefined && SAFE_ICON.test(candidate) && !failed
+  const usable = isSafeIconDataUrl(candidate) && !failed
   return (
     <span className="em-extIcon" data-kind={kind} aria-hidden="true">
       {usable
