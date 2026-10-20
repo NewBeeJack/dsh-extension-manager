@@ -215,6 +215,8 @@ export interface PluginBundleRecord {
   name: string
   displayName: string
   description: string
+  /** Verified base64 data URL from the installed bundle's own manifest, when present. */
+  icon?: string
   version: VersionInfo
   source: SourceInfo
   runtime: RuntimeInfo
@@ -248,6 +250,8 @@ export interface PluginRowRecord {
   name: string
   displayName: string
   description: string
+  /** Verified base64 data URL from the live plugin metadata, when present. */
+  icon?: string
   version: VersionInfo
   source: SourceInfo
   runtime: RuntimeInfo

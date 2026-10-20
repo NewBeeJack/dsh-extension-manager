@@ -48,7 +48,7 @@ node scripts/dev/verify-dialog-layout.mjs --url "http://127.0.0.1:3080/?token=..
 
 Contract and design rationale: [dialog-layout.md](dialog-layout.md).
 
-## Verification summary (v0.3.2)
+## Verification summary (v0.4.0)
 
 - Unit tests: **119/119 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
 - Isolated acceptance: **7/7 scenarios passing**, including npm update, git update with rollback, batch + concurrency, local-modification overwrite, interrupted-install recovery, skill update and Windows file-lock rollback.

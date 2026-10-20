@@ -414,6 +414,7 @@ export class PluginInventoryImpl implements PluginInventory {
         name: bundle.name,
         displayName,
         description,
+        ...(bundle.meta?.icon === undefined || bundle.meta.icon === '' ? {} : { icon: bundle.meta.icon }),
         version: {
           ...(bundle.version === undefined ? {} : { current: bundle.version }),
           status,
@@ -482,6 +483,7 @@ export class PluginInventoryImpl implements PluginInventory {
         name: plugin.moduleName,
         displayName: title !== '' ? title : plugin.moduleName,
         description,
+        ...(plugin.meta?.icon === undefined || plugin.meta.icon === '' ? {} : { icon: plugin.meta.icon }),
         version: { status: 'no-source', reason: '独立插件行没有独立的安装包版本' },
         source: {
           kind: inPatch ? 'profile-patch' : 'unknown',

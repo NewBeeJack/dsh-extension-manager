@@ -295,6 +295,20 @@ export function recordDescription(record: ExtensionRecord): string {
 }
 
 /** The most useful single path for the list row. */
+/** Local installation instance directory used by the list's third line. */
+export function recordInstallDirectory(record: ExtensionRecord): string | undefined {
+  if (isVirtualSkill(record)) return undefined
+  const paths = record.paths
+  if (paths.installDir !== undefined && paths.installDir !== '') return paths.installDir
+  if (paths.resolvedPath !== undefined && paths.resolvedPath !== '') return paths.resolvedPath
+  if (isSkill(record) && paths.manifestPath !== undefined && paths.manifestPath !== '') {
+    const clean = paths.manifestPath
+    const cut = Math.max(clean.lastIndexOf(String.fromCharCode(92)), clean.lastIndexOf('/'))
+    if (cut > 0) return clean.slice(0, cut)
+  }
+  return undefined
+}
+
 export function recordPathText(record: ExtensionRecord): string {
   const paths = record.paths
   return paths.installDir ?? paths.resolvedPath ?? paths.manifestPath ?? paths.rootDir ?? ''

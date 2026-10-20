@@ -814,6 +814,7 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         preview={preview}
         scanMeta={title.meta}
         scanTitle={title.title}
+        onOpenDiagnostics={() => { setDiagnosticsOpen(true) }}
       />
 
       {preview ? (
@@ -907,7 +908,6 @@ export function ExtensionManagerSection(props: SectionProps): ReactNode {
         onRefresh={refreshActive}
         onCheckAll={() => { void runCheck() }}
         onUpdateAll={() => { void requestPlan('batch') }}
-        onOpenDiagnostics={() => { setDiagnosticsOpen(true) }}
       />
 
       {currentTask === null || currentTaskView.dismissed ? null : currentTask.task === null ? (

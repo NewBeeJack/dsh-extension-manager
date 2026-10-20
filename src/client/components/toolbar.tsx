@@ -11,7 +11,6 @@ import {
   Button,
   IconChecklistOutlineRegular,
   IconDownloadOutlineRegular,
-  IconInspectOutlineRegular,
   IconRefreshOutlineRegular,
   IconSearchOutlineRegular,
   IconSlidersTwoOutlineRegular,
@@ -65,7 +64,6 @@ export interface ToolbarProps {
   onRefresh: () => void
   onCheckAll: () => void
   onUpdateAll: () => void
-  onOpenDiagnostics: () => void
 }
 
 /** Build one menu option list for the status select. */
@@ -93,7 +91,7 @@ export function Toolbar({
   scope, filters, onFiltersChange, sourceOptions, rangeOptions, workspaceSelector, records,
   filtersOpen, onToggleFilters, matchedCount, totalCount, onClearFilters,
   ready, taskRunning, refreshing, checking, checkValid, batchCount, checkNotice,
-  onRefresh, onCheckAll, onUpdateAll, onOpenDiagnostics,
+  onRefresh, onCheckAll, onUpdateAll,
 }: ToolbarProps): ReactNode {
   const rowRef = useRef<HTMLDivElement | null>(null)
   const actionsRef = useRef<HTMLDivElement | null>(null)
@@ -187,6 +185,7 @@ export function Toolbar({
           onClick={onToggleFilters}
         >
           筛选
+          {activeFilterCount > 0 ? <span className="em-filterActiveDot" aria-hidden="true" /> : null}
         </Button>
         <div className="em-toolActions" ref={actionsRef}>
           <Button
@@ -266,17 +265,6 @@ export function Toolbar({
               options={SORT_OPTIONS.map(option => ({ id: option.value, label: option.label }))}
               onChange={(id) => { update({ sort: id as RecordFilters['sort'] }) }}
             />
-            <span className="em-toolSpacer" />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              icon={<IconInspectOutlineRegular size={14} />}
-              title="打开诊断信息：环境、探测结果与清单完整性"
-              onClick={onOpenDiagnostics}
-            >
-              诊断
-            </Button>
           </div>
           <div className="em-filterPanelFoot">
             <span className="em-filterMatch">

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-10-20
+
+Local V3 interface refresh; **not published** to npm/GitHub.
+
+- Rebuilt the content surface with soft semantic stat cards, real extension icons from DSH bundle metadata, local puzzle/document fallback icons, wider three-layer list cards and full local install-directory copy.
+- Kept the existing V2 single-row toolbar, check/update plan confirmation and per-scope check-result state; compacted completed checks to a one-line summary with details toggle.
+- Moved diagnostics out of the filter panel into the header secondary area; filter panel remains collapsed by default with an active-filter indicator.
+- Added explicit install-path copy feedback, unknown/virtual path states and preserved all source/technical information in details.
+- Tests: 119 passing; real-profile UI checks for icons, paths, summary, filters, groups and check isolation.
+
 ## [0.3.2] — 2026-10-20
 
 V2.1 local defect fixes; **not published** to npm/GitHub.

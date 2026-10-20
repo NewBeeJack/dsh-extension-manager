@@ -31,7 +31,7 @@ import {
   recordDescription,
   recordName,
   recordPathText,
-  recordSourceLabel,
+  recordInstallDirectory,
   recordVersionText,
   shortPath,
   statusViewOf,
@@ -40,12 +40,13 @@ import {
   type RecordGroup,
   type ViewScope,
 } from '../model'
-import { cx, EmptyState, IconAction, StatusTag } from '../ui'
+import { cx, EmptyState, IconAction, PathCopyButton, StatusTag } from '../ui'
+import { ExtensionIcon } from './extension-icon'
 
 /** Virtualize only when this many rows are visible. */
 export const VIRTUAL_ROW_THRESHOLD = 100
 const GROUP_ITEM_HEIGHT = 32
-const ROW_ITEM_HEIGHT = 84
+const ROW_ITEM_HEIGHT = 104
 const OVERSCAN_PX = 240
 
 /** Props of {@link RecordList}. */
@@ -63,16 +64,6 @@ export interface RecordListProps {
   onOpenDetails: (record: ExtensionRecord) => void
   onClearFilters: () => void
   onRefresh: () => void
-}
-
-/** Icon used for one record in the list. */
-function RecordIcon({ record }: { record: ExtensionRecord }): ReactNode {
-  if (isSkillCopy(record)) {
-    return <IconSkillOutlineRegular size={16} />
-  }
-  if (record.kind === 'skill') return <IconSparkleRegular size={16} />
-  if (isPluginRow(record)) return <IconPluginPinwheelOutlineRegular size={16} />
-  return <IconCordisPluginOutlineRegular size={16} />
 }
 
 /** Runtime availability sentence shown at the end of the metadata line. */
@@ -114,14 +105,15 @@ function RecordRow({
   const name = recordName(record)
   const version = recordVersionText(record)
   const description = recordDescription(record)
-  const path = recordPathText(record)
-  const source = recordSourceLabel(record)
+  const installDirectory = recordInstallDirectory(record)
   const checked = formatRelative(recordCheckedAt(record))
   const note = runtimeNote(record, unmanagedRoots)
 
   return (
     <li className="em-row" data-kind={record.kind} data-status={record.version.status}>
-      <span className="em-rowIcon" aria-hidden="true"><RecordIcon record={record} /></span>
+      <span className="em-rowIcon" aria-hidden="true">
+        <ExtensionIcon kind={record.kind === 'skill' ? 'skill' : 'plugin'} {...(record.kind === 'skill' || record.icon === undefined ? {} : { icon: record.icon })} />
+      </span>
       <div className="em-rowBody">
         <div className="em-rowTop">
           <span className="em-rowName" title={name}>{name}</span>
@@ -143,23 +135,23 @@ function RecordRow({
         </div>
         {description === '' ? null : <DescriptionLine text={description} />}
         <div className="em-rowMeta">
-          <span className="em-metaSource" title={record.source.packageName ?? record.name}>{source}</span>
-          <span className="em-metaSep" aria-hidden="true">·</span>
           <span className="em-metaPath">
-            {path === ''
-              ? <span className="em-metaMuted">路径未知</span>
+            {installDirectory === undefined
+              ? <span className="em-metaMuted">{record.kind === 'skill' && record.layout === 'virtual' ? '无独立本地目录' : '本地路径未知'}</span>
               : (
-                <Tooltip label={path} side="bottom" delayMs={400} maxWidth={520}>
-                  <span className="em-mono em-metaPathText" title={path}>{shortPath(path)}</span>
-                </Tooltip>
+                <>
+                  <Tooltip label={installDirectory} side="bottom" delayMs={400} maxWidth={520}>
+                    <span className="em-mono em-metaPathText" title={installDirectory}>{shortPath(installDirectory)}</span>
+                  </Tooltip>
+                  <PathCopyButton path={installDirectory} />
+                </>
               )}
           </span>
           <span className="em-metaTail">
             {note === undefined ? null : <span className="em-metaNote">{note}</span>}
             {checked === undefined ? null : (
               <span className="em-metaChecked" title={recordCheckedAt(record)}>
-                {note === undefined ? '' : '· '}
-                检查于 {checked}
+                {note === undefined ? '' : '· '}检查于 {checked}
               </span>
             )}
           </span>

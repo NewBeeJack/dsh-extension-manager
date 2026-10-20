@@ -125,6 +125,49 @@ export function CopyButton({ text, label, className }: {
   return <Tooltip label={copied ? '已复制' : label} side="top" delayMs={300}>{button}</Tooltip>
 }
 
+/** Copy a full installation path with explicit success/failure feedback. */
+export function PathCopyButton({ path, label = '复制安装路径' }: {
+  path: string
+  label?: string
+}): ReactNode {
+  const [state, setState] = useState<'idle' | 'ok' | 'error'>('idle')
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => {
+    if (timer.current !== undefined) clearTimeout(timer.current)
+  }, [])
+  const onCopy = (event: { stopPropagation: () => void }): void => {
+    event.stopPropagation()
+    void writeClipboard(path).then((ok) => {
+      setState(ok ? 'ok' : 'error')
+      if (timer.current !== undefined) clearTimeout(timer.current)
+      timer.current = setTimeout(() => { setState('idle') }, COPY_FEEDBACK_MS)
+    }, () => {
+      setState('error')
+      if (timer.current !== undefined) clearTimeout(timer.current)
+      timer.current = setTimeout(() => { setState('idle') }, COPY_FEEDBACK_MS)
+    })
+  }
+  const feedback = state === 'ok' ? '已复制路径' : state === 'error' ? '复制失败' : undefined
+  return (
+    <span className="em-pathCopy">
+      <Tooltip label={label} side="top" delayMs={300}>
+        <button
+          type="button"
+          className={cx('em-iconBtn', 'em-pathCopyBtn', state === 'ok' && 'is-copied', state === 'error' && 'is-error')}
+          aria-label={feedback ?? label}
+          title={feedback ?? label}
+          onClick={onCopy}
+        >
+          {state === 'ok' ? <IconCheckOutlineRegular size={12} /> : <IconCopyOutlineRegular size={12} />}
+        </button>
+      </Tooltip>
+      {feedback === undefined ? null : (
+        <span className={cx('em-pathCopyFeedback', state === 'error' && 'is-error')} role="status">{feedback}</span>
+      )}
+    </span>
+  )
+}
+
 /** One compact icon-only action with an accessible name and an honest disabled reason. */
 export function IconAction({
   label, onClick, disabled, disabledReason, children, className, busy,
