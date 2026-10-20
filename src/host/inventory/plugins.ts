@@ -37,6 +37,7 @@ import {
   tidyPath,
   type ProfileFacts,
 } from '../env'
+import { parsePackageRepository } from '../../shared/repository'
 import { localizedText, PLUGIN_DISPLAY } from './pluginMeta'
 
 const CACHE_TTL_MS = 4000
@@ -106,6 +107,15 @@ function readProfileManifestData(dir: string): {
     dependencies,
     bundles: Array.isArray(selected) ? selected.filter((item): item is string => typeof item === 'string') : [],
   }
+}
+
+/** Read the installed package's own repository declaration (read-only). */
+function readRepositoryDeclaration(installDir: string | undefined): { url: string; directory?: string } | undefined {
+  if (installDir === undefined) return undefined
+  const manifest = readJsonFile(join(installDir, 'package.json'))
+  if (manifest === undefined) return undefined
+  const repository = (manifest as { repository?: unknown }).repository
+  return parsePackageRepository(repository)
 }
 
 /** Classify a `BundleInfo.source` spec into provenance. */
@@ -359,6 +369,16 @@ export class PluginInventoryImpl implements PluginInventory {
         diagnostics.push({ level: 'warning', code: 'provenance/parse-failed', message: '安装来源无法解析，已按未知来源展示' })
       }
       const installDir = resolvePackageDirectory(facts, bundle.name)
+      // Only the installed package's own declaration is read here; this is
+      // display metadata and never participates in update-source selection.
+      const declaredRepository = readRepositoryDeclaration(installDir)
+      if (declaredRepository !== undefined) {
+        source = {
+          ...source,
+          repository: declaredRepository.url,
+          ...(declaredRepository.directory === undefined ? {} : { repositoryDirectory: declaredRepository.directory }),
+        }
+      }
       const id = `plugin-bundle:${facts.name}:${bundle.name}`
       const cache = cachedChecks[`plugin:${id}`]
       const self = bundle.name === SELF_BUNDLE

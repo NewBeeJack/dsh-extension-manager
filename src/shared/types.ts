@@ -92,6 +92,10 @@ export interface SourceInfo {
   subdir?: string
   /** `owner/repo` for GitHub-backed extensions. */
   repo?: string
+  /** Repository URL declared by the installed package.json, when readable. */
+  repository?: string
+  /** Repository-relative directory declared by package.json `repository.directory`. */
+  repositoryDirectory?: string
   /** Free-form qualification shown in details (e.g. why trust is only "needs-confirmation"). */
   detail?: string
 }

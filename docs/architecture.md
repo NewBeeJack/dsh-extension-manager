@@ -417,7 +417,7 @@ Host 启动时 `index.ts` 调用 `void updates.recover()`（不阻塞启动）�
   - `test/plugin-updates.test.ts` → registry 策略/候选/兼容性/spec/lockfile/代理；
   - `test/skills.test.ts` → frontmatter/根解析/git tree/锁文件/覆盖关系；
   - `test/updater.test.ts` → 事务状态机/备份/归档/Windows 替换/回滚/崩溃恢复/串行队列；
-  - `node --test` 一次运行全部（102 用例，`npm test` 实测 102/102 通过）。
+  - `node --test` 一次运行全部（115 用例，`npm test` 实测 115/115 通过）。
 - **新增来源类型的步骤**：`SourceKind`/`SourceTrust`（shared）→ `env.classifyDependencySpec` 或 `skills.buildSource` 分类 → 检查器分派（`pluginUpdates`/`skillUpdates`）→ 客户端 `model.ts` 的 `SOURCE_KIND_LABELS`/`SOURCE_GROUPS`。
 - **新增状态**：`UpdateStatus`（shared）→ 检查器产出 → `model.ts` 状态视图与筛选 → 计划/执行器规则（如可作为候选）。
 - **新增接口**：`shared/api.ts` 加端点常量与 body 类型 → `routes.ts` 实现 → `client/api.ts` transport → 页面调用。

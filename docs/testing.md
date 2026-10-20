@@ -4,12 +4,13 @@ The project keeps three layers of verification. All of them are runnable from a 
 
 ## 1. Unit tests — `npm test`
 
-`node --test` with the native TypeScript runner (no build step). 102 tests:
+`node --test` with the native TypeScript runner (no build step). 115 tests:
 
 | File | Coverage |
 | --- | --- |
 | `test/plugin-updates.test.ts` | registry policy / public-mirror fallback limits, packument parsing, candidate selection, compatibility, proxy/NO_PROXY, git spec & lockfile parsing, ref peeling |
 | `test/skills.test.ts` | SKILL.md frontmatter, skill root resolution, git tree hashing, lockfile parsing, shadowing |
+| `test/repository.test.ts` | repository URL normalization, package.json declarations, conflicts, credentials, monorepo commit links |
 | `test/coordinator.test.ts` | coordinator admission, task journal persistence/restart, duplicate-update guard, cancellation lookup |
 | `test/updater.test.ts` | transaction state machine, backup verification, tarball/archive parsing, Windows replace semantics, rollback, crash recovery, serialized queue |
 
@@ -47,9 +48,9 @@ node scripts/dev/verify-dialog-layout.mjs --url "http://127.0.0.1:3080/?token=..
 
 Contract and design rationale: [dialog-layout.md](dialog-layout.md).
 
-## Verification summary (v0.2.0)
+## Verification summary (v0.3.0)
 
-- Unit tests: **102/102 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
+- Unit tests: **115/115 passing**; typecheck clean; production build succeeds (`lib/index.js` Host ESM bundle, `lib/client.js` Web client bundle).
 - Isolated acceptance: **7/7 scenarios passing**, including npm update, git update with rollback, batch + concurrency, local-modification overwrite, interrupted-install recovery, skill update and Windows file-lock rollback.
 - Dialog layout: **19/19 checks passing** at 1920×1080, 1536×864, 1366×768, 1093×614, 911×512 and 683×384, plus dark mode and last-line visibility.
 - Real-environment smoke: installed from the release tarball into a DSH `web` profile, Host health endpoint returns ok, Plugins/Skills inventories, details, diagnostics and update-plan dialogs verified in the DSH Web GUI (light and dark themes).

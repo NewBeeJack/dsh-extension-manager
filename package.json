@@ -1,6 +1,6 @@
 {
   "name": "dsh-extension-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Unified plugin & skill manager for DeepSeek Harness (DSH): inventory, update checks, and safe transactional updates.",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,8 @@
     "LICENSE",
     "docs/architecture.md",
     "docs/dialog-layout.md",
-    "docs/v5-optimization.md"
+    "docs/v5-optimization.md",
+    "docs/v6-details.md"
   ],
   "dsh": {
     "bundle": {
@@ -37,7 +38,7 @@
     "build:watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm run build",
-    "test": "node --test test/plugin-updates.test.ts test/skills.test.ts test/updater.test.ts test/coordinator.test.ts"
+    "test": "node --test test/plugin-updates.test.ts test/skills.test.ts test/updater.test.ts test/coordinator.test.ts test/repository.test.ts"
   },
   "engines": {
     "node": ">=22.19.0"

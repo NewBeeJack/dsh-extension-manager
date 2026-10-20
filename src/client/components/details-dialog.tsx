@@ -16,6 +16,7 @@ import {
   Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HistoryEntry, SkillRecord } from '../../shared/types'
+import { resolveRepository, type RepositoryView } from '../../shared/repository'
 import {
   checkBlockedReason,
   deriveSignals,
@@ -33,6 +34,7 @@ import {
   LAYOUT_LABELS,
   recordDescription,
   recordName,
+  recordPathText,
   recordCheckedAt,
   recordTechnicalName,
   recordVersionText,
@@ -159,6 +161,134 @@ function HistoryBlock({ record, state, onRetry }: {
   )
 }
 
+/** Human-readable reason when the resolver cannot provide a link. */
+function repositoryMissingText(view: Extract<RepositoryView, { kind: 'none' }>): string {
+  switch (view.reason) {
+    case 'local-install': return '这是本地安装来源，未声明仓库地址。'
+    case 'no-declaration': return '项目未声明仓库地址。'
+    case 'unverified': return '当前来源尚未核实。'
+    case 'missing': return '当前来源未提供仓库地址。'
+  }
+}
+
+/** The primary repository area: one link or one honest uncertainty statement. */
+function RepositorySection({ record }: { record: ExtensionRecord }): ReactNode {
+  const view = resolveRepository(record)
+  const title = view.kind === 'other' ? '项目仓库' : 'GitHub 仓库'
+  return (
+    <DetailSection title={title}>
+      {view.kind === 'github' ? (
+        <>
+          <p className="em-repoLine">
+            <a className="em-repoLink" href={view.url} target="_blank" rel="noreferrer noopener" title="打开项目仓库">
+              {view.display}
+              <IconRightUpOutlineRegular size={12} className="em-repoExternal" />
+            </a>
+          </p>
+          {view.subdir === undefined ? null : (
+            <p className="em-repoSubdir">
+              仓库子目录：{view.subdirUrl === undefined
+                ? <span className="em-mono">{view.subdir}</span>
+                : <a className="em-link em-mono" href={view.subdirUrl} target="_blank" rel="noreferrer noopener">{view.subdir}</a>}
+            </p>
+          )}
+          <p className="em-detailMuted">{view.sourceLabel}</p>
+        </>
+      ) : null}
+      {view.kind === 'other' ? (
+        <>
+          <p className="em-repoLine">
+            <a className="em-repoLink" href={view.url} target="_blank" rel="noreferrer noopener" title="打开项目仓库">
+              {view.display}
+              <IconRightUpOutlineRegular size={12} className="em-repoExternal" />
+            </a>
+          </p>
+          <p className="em-detailMuted">项目声明的仓库 · {view.platform}</p>
+        </>
+      ) : null}
+      {view.kind === 'npm' ? (
+        <>
+          <p className="em-detailMuted">未找到可靠的 GitHub 仓库。</p>
+          <p className="em-repoLine">
+            <a className="em-link" href={view.url} target="_blank" rel="noreferrer noopener">npm 包页面</a>
+            <span className="em-detailMuted">（仅包页面，未声明 GitHub 仓库）</span>
+          </p>
+        </>
+      ) : null}
+      {view.kind === 'conflict' ? (
+        <p className="em-detailMuted">仓库来源待核实：多个可信来源给出了不同地址，未默认打开任何链接。</p>
+      ) : null}
+      {view.kind === 'none' ? (
+        <p className="em-detailMuted">未找到可靠的 GitHub 仓库。{repositoryMissingText(view)}</p>
+      ) : null}
+    </DetailSection>
+  )
+}
+
+/** One useful installation path, with a copy action only when a path exists. */
+function InstallationSection({ record }: { record: ExtensionRecord }): ReactNode {
+  // A flat-file skill's useful install location is the SKILL.md file, not the
+  // shared skills directory the inventory also reports for copy operations.
+  const path = isSkill(record) && record.layout === 'flat-file'
+    ? (record.paths.manifestPath ?? record.paths.installDir ?? recordPathText(record))
+    : recordPathText(record)
+  return (
+    <DetailSection title="安装位置">
+      {path === '' ? (
+        <p className="em-detailMuted">
+          {isSkill(record) && record.layout === 'virtual'
+            ? '由 Provider 提供，无独立本地安装目录。'
+            : isPluginRow(record)
+              ? '运行时插件行，没有独立的安装目录。'
+              : '没有可用的本地安装路径。'}
+        </p>
+      ) : (
+        <div className="em-pathRow em-installPath">
+          <span className="em-mono em-pathValue" title={path}>{path}</span>
+          <CopyButton text={path} label="复制安装路径" />
+        </div>
+      )}
+    </DetailSection>
+  )
+}
+
+/** Update facts without repeating the primary status already shown in the header. */
+function UpdateSection({ record }: { record: ExtensionRecord }): ReactNode {
+  const version = record.version
+  const current = recordVersionText(record) ?? version.current ?? (version.currentCommit === undefined ? undefined : version.currentCommit.slice(0, 8))
+  const available = version.available
+  const hasTarget = version.status === 'update-available' || version.status === 'incompatible-update'
+  const checkReason = record.actions.canCheck ? undefined : checkBlockedReason(record)
+  const updateReason = record.actions.canUpdate || !hasTarget ? undefined : updateBlockedReason(record)
+  return (
+    <DetailSection title="更新情况">
+      <FactsList>
+        {hasTarget ? (
+          <Fact label="可更新">
+            当前 {current ?? '未知'} → {available === undefined ? '目标版本未知' : `可更新至 ${available}`}
+          </Fact>
+        ) : null}
+        <Fact label="最近检查">
+          {version.lastCheckedAt === undefined
+            ? '尚未检查'
+            : `${formatDateTime(version.lastCheckedAt) ?? ''}（${formatRelative(version.lastCheckedAt) ?? ''}）`}
+        </Fact>
+        {hasTarget && version.compatibility === 'incompatible' ? <Fact label="兼容性">目标版本与当前 DSH 不兼容</Fact> : null}
+        {hasTarget && version.reason !== undefined && version.reason !== '' ? <Fact label="说明">{version.reason}</Fact> : null}
+        {checkReason === undefined ? null : <Fact label="无法检查">{checkReason}</Fact>}
+        {updateReason === undefined ? null : <Fact label="无法更新">{updateReason}</Fact>}
+      </FactsList>
+    </DetailSection>
+  )
+}
+
+/** Count only same-name copies that really compete in the current scope. */
+function competingSkillCount(record: ExtensionRecord, allRecords: readonly ExtensionRecord[] | undefined, unmanagedRoots: ReadonlySet<string>): number {
+  if (!isSkillCopy(record) || allRecords === undefined) return 0
+  const name = recordName(record)
+  return allRecords.filter(entry => isSkillCopy(entry) && recordName(entry) === name && entry.rootNote === undefined && !unmanagedRoots.has(entry.rootKey)).length
+}
+
 /** Render the record-specific sections. */
 function RecordSections({ record, allRecords, unmanagedRoots }: { record: ExtensionRecord; allRecords: readonly ExtensionRecord[] | undefined; unmanagedRoots: ReadonlySet<string> }): ReactNode {
   const signals = deriveSignals(record)
@@ -166,6 +296,7 @@ function RecordSections({ record, allRecords, unmanagedRoots }: { record: Extens
   const version = record.version
   const source = record.source
   const url = httpsUrl(source.url)
+  const repositoryView = resolveRepository(record)
   const invocation = isSkill(record) ? invocationText(record.invocation) : undefined
 
   return (
@@ -234,6 +365,8 @@ function RecordSections({ record, allRecords, unmanagedRoots }: { record: Extens
           {textFact('分支 / 标签', source.ref, true)}
           {textFact('提交', source.commit, true)}
           {textFact('子目录', source.subdir, true)}
+          {textFact('声明仓库', source.repository, true)}
+          {textFact('声明子目录', source.repositoryDirectory, true)}
           {textFact('来源说明', source.detail)}
           {url === undefined ? null : (
             <div className="em-fact">
@@ -460,6 +593,18 @@ function RecordSections({ record, allRecords, unmanagedRoots }: { record: Extens
               )}
             </FactsList>
           </DetailSection>
+          {repositoryView.kind === 'conflict' ? (
+            <DetailSection title="仓库来源冲突">
+              <p className="em-detailMuted">不同可信来源声明了不同的仓库地址；默认详情不选择其中任何一个，避免误导。</p>
+              <ul className="em-fileList">
+                {repositoryView.conflicts.map(conflict => (
+                  <li key={`${conflict.origin}:${conflict.url}`} className="em-mono">
+                    {conflict.origin === 'install' ? '安装来源' : conflict.origin === 'skill-source' ? 'Skill 来源' : 'package.json'} · {conflict.url}
+                  </li>
+                ))}
+              </ul>
+            </DetailSection>
+          ) : null}
         </>
       ) : null}
 
@@ -493,6 +638,7 @@ export function DetailsDialog({
 }: DetailsDialogProps): ReactNode {
   const [historyState, setHistoryState] = useState<HistoryState>({ status: 'loading' })
   const [historyNonce, setHistoryNonce] = useState(0)
+  const [advancedRecordId, setAdvancedRecordId] = useState<string | undefined>(undefined)
   const recordId = record?.id
 
   useEffect(() => {
@@ -514,16 +660,14 @@ export function DetailsDialog({
 
   const signals = deriveSignals(record)
   const status = statusViewOf(record)
-  const url = httpsUrl(record.source.url)
   const name = recordName(record)
-  const technical = recordTechnicalName(record)
+  const description = recordDescription(record)
+  const versionText = recordVersionText(record) ?? (record.version.currentCommit === undefined ? undefined : record.version.currentCommit.slice(0, 8))
+  const collisionCount = competingSkillCount(record, allRecords, unmanagedRoots ?? EMPTY_UNMANAGED_ROOTS)
+  const advancedOpen = recordId !== undefined && advancedRecordId === recordId
   const updateReason = updateBlockedReason(record)
   const checkReason = checkBlockedReason(record)
   const showUpdate = record.version.status === 'update-available' || record.version.status === 'incompatible-update'
-
-  const openUrl = (target: string): void => {
-    window.open(target, '_blank', 'noopener,noreferrer')
-  }
 
   return (
     <Modal
@@ -541,37 +685,56 @@ export function DetailsDialog({
           <div className="em-detailHeadText">
             <div className="em-detailTitleRow">
               <h2 className="em-detailTitle">{name}</h2>
+              {versionText === undefined ? null : <span className="em-detailVersion">{versionText}</span>}
               <StatusTag view={status} />
-              {isSkillCopy(record) && record.effective === false ? <Tag tone="warning">已覆盖</Tag> : null}
+              {collisionCount > 1 ? (
+                <button
+                  type="button"
+                  className="em-detailCollision"
+                  title="打开高级信息查看同名副本关系"
+                  onClick={() => { setAdvancedRecordId(recordId) }}
+                >
+                  同名副本 {String(collisionCount)}
+                </button>
+              ) : null}
               {preview ? <Tag tone="warning">预览数据</Tag> : null}
             </div>
-            <p className="em-detailSubtitle em-mono">
-              {technical}
-              {recordVersionText(record) === undefined ? '' : ` · ${recordVersionText(record) ?? ''}`}
-              {' · '}
-              {SOURCE_KIND_LABELS[record.source.kind]}
-            </p>
+            {description === '' ? null : <p className="em-detailDescription" title={description}>{description}</p>}
           </div>
           <button type="button" className="em-iconBtn" aria-label="关闭详情" title="关闭" onClick={onClose}>
             <span aria-hidden="true" className="em-closeGlyph">✕</span>
           </button>
         </header>
         <div className="em-detailBody">
-          <RecordSections record={record} allRecords={allRecords} unmanagedRoots={unmanagedRoots ?? EMPTY_UNMANAGED_ROOTS} />
-          <DetailSection title="更新历史">
-            <HistoryBlock record={record} state={historyState} onRetry={() => { setHistoryNonce(value => value + 1) }} />
-          </DetailSection>
+          <RepositorySection record={record} />
+          <InstallationSection record={record} />
+          <UpdateSection record={record} />
+          <section className="em-advanced">
+            <button
+              type="button"
+              className="em-advancedToggle"
+              aria-expanded={advancedOpen}
+              aria-controls="em-advanced-details"
+              onClick={() => { setAdvancedRecordId(open => open === recordId ? undefined : recordId) }}
+            >
+              <span>高级信息与诊断</span>
+              <span className="em-advancedState">{advancedOpen ? '收起' : '展开'}</span>
+            </button>
+            {advancedOpen ? (
+              <div className="em-advancedBody" id="em-advanced-details">
+                <RecordSections record={record} allRecords={allRecords} unmanagedRoots={unmanagedRoots ?? EMPTY_UNMANAGED_ROOTS} />
+                <DetailSection title="更新历史">
+                  <HistoryBlock record={record} state={historyState} onRetry={() => { setHistoryNonce(value => value + 1) }} />
+                </DetailSection>
+              </div>
+            ) : null}
+          </section>
         </div>
         <footer className="em-detailFooter">
           <span className="em-detailFooterSpacer" />
           <Button variant="ghost" size="sm" icon={<IconInspectOutlineRegular size={13} />} onClick={onOpenDiagnostics}>
             诊断
           </Button>
-          {url === undefined ? null : (
-            <Button variant="outline" size="sm" icon={<IconRightUpOutlineRegular size={13} />} onClick={() => { openUrl(url) }}>
-              打开 GitHub
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"

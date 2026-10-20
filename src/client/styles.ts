@@ -591,6 +591,57 @@ export const CSS = `
 .em-detailTitleRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .em-detailTitle { margin: 0; font-size: 16px; line-height: 24px; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .em-detailSubtitle { margin: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+.em-detailVersion { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.em-detailDescription {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.em-detailCollision {
+  flex: none;
+  border: 0;
+  padding: 1px 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+.em-detailCollision:hover { color: var(--dsw-alias-label-secondary); }
+.em-repoLine { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0; min-width: 0; }
+.em-repoLink { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-link); font-size: 12px; line-height: 18px; text-decoration: none; overflow-wrap: anywhere; }
+.em-repoLink:hover { text-decoration: underline; }
+.em-repoExternal { flex: none; color: var(--dsw-alias-label-tertiary); }
+.em-repoSubdir { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
+.em-advanced { border-top: 0.5px solid var(--dsw-alias-border-l1); padding-top: 10px; }
+.em-advancedToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.em-advancedToggle:hover { color: var(--dsw-alias-label-primary); }
+.em-advancedState { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.em-installPath { align-items: flex-start; padding: 1px 0; }
+.em-advancedBody { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .em-detailBody {
   display: flex;
   flex: 1 1 auto;

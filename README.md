@@ -26,12 +26,14 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 | --- | --- |
 | ![Skills page](docs/screenshots/skills.png) | ![Diagnostics dialog](docs/screenshots/diagnostics.png) |
 
-## What's new in 0.2.0
+## What's new in 0.3.0
 
-- **Compact UI**: three primary stats (installed / updatable / abnormal) with a “统计详情” disclosure, one-row toolbar with a collapsible filter panel, tighter three-line cards and a “当前匹配 N 项” readout.
-- **Unified update coordination**: one `UpdateCoordinator` owns task admission, single-flight updates, structured task logging, cancellation requests and a durable `tasks.json` journal; plugin and skill update implementations remain independent.
-- **Skills scope/conflicts**: same-name physical copies carry a “同名副本 N” badge; the details dialog lists each candidate's root, rank, provider, scope, real path and coverage state; incomplete runtime catalogs are shown as “当前作用域未验证”.
-- **Faster lists**: per-scope inventory cache with stale-while-revalidate and request epochs, persisted filters/search/collapsed groups, and on-demand rendering above 100 visible rows. Keys `/` (focus search) and Escape (close filters / clear search) are scoped to the page.
+- **One-screen detail dialogs**: Plugins and Skills now open with only basic info, the project repository, the installation location and update status. All former technical sections, diagnostics, update history, contribution rows and same-name copy details are behind a default-collapsed “高级信息与诊断”.
+- **Traceable repository links**: a read-only resolver handles package.json repository declarations, git/GitHub install provenance, GitHub HTTPS/SSH/shorthand spellings, monorepo subdirectories and honest non-link states. It never changes update sources and never guesses a repository from a name.
+- **Preserved capabilities**: full paths remain copyable, update check/update actions, diagnostics, history and every previous technical field remain available.
+- The V5 foundation (three stats, compact toolbar/filter panel, UpdateCoordinator, Skills scope/conflicts, inventory cache and on-demand rendering) is unchanged.
+
+> 0.3.0 is a local build only; it has **not** been published to npm or GitHub. Install the local tarball described below.
 
 ## Requirements
 
@@ -45,26 +47,15 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 ## Installation
 
-### From npm registry (easiest)
+### From the local V6 tarball
 
 ```bash
-dsh plugin --profile web add dsh-extension-manager
-# pin a version: dsh plugin --profile web add dsh-extension-manager@0.2.0
+dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.3.0.tgz"
 ```
 
-The npm package name also works directly in DSH's **Plugins → Add plugin** dialog. Then enable the bundle and restart DSH as described below.
+Then enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI. Restart DSH (or let HMR recompose the profile). Open **Settings → 扩展管理器**.
 
-### From a release tarball
-
-1. Download `dsh-extension-manager-0.2.0.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
-2. Install it into a DSH profile (example: `web`):
-
-   ```bash
-   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.2.0.tgz"
-   ```
-
-3. Enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI.
-4. Restart DSH (or let HMR recompose the profile). Open **Settings → 扩展管理器**.
+The npm package on the public registry is still the earlier 0.1.1 release; no 0.3.0 package or release exists remotely.
 
 ### From source
 
@@ -72,7 +63,7 @@ The npm package name also works directly in DSH's **Plugins → Add plugin** dia
 npm ci
 npm run build          # lib/index.js (Host ESM) + lib/client.js (Web client)
 npm test               # 102 unit tests
-npm pack               # dsh-extension-manager-0.2.0.tgz
+npm pack               # dsh-extension-manager-0.3.0.tgz
 ```
 
 Then install the packed tarball as above. For iterative development use `dsh plugin --profile web add "link:<path-to-checkout>"` and rebuild; the client bundle hot-swaps and `node scripts/dev/reload-host.mjs` can trigger a Host recomposition.
@@ -170,6 +161,7 @@ docs/            Architecture, dialog-layout contract, test/acceptance summary
 - [docs/dialog-layout.md](docs/dialog-layout.md) — dialog spacing contract and automated visual regression.
 - [docs/testing.md](docs/testing.md) — test suites, isolated acceptance scenarios and verification results.
 - [docs/v5-optimization.md](docs/v5-optimization.md) — the local V5 optimization record (UI, coordinator, Skills scope, cache/virtualization, measurements).
+- [docs/v6-details.md](docs/v6-details.md) — V6 detail-dialog structure, repository resolution and verification.
 
 ## Contributing
 

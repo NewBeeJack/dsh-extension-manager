@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-10-20
+
+Local V6 details-architecture update; **not published** to npm/GitHub.
+
+### Changed
+
+- Details dialogs for Plugins and Skills open with four visible areas only: basic info, project repository, installation location and update situation; all former technical sections, diagnostics, update history, contribution rows and same-name copy details sit behind a default-collapsed “高级信息与诊断”.
+- Added a read-only repository resolver for GitHub/GitLab URLs, git+https/git SSH/github shorthand, package.json repository declarations, npm package-page fallback, credential/invalid-URL refusal, conflicting-source detection and commit-pinned monorepo subtree links.
+- Installed plugin inventory now reads the package's own package.json `repository` field (display only); update source selection, transaction/backup logic and Skills scope rules are unchanged.
+- Kept copyable full paths, update check/update buttons, diagnostics and update history; collapsed the redundant “open GitHub” footer action into the repository area.
+- Tests: 115 passing (13 repository resolver tests).
+
 ## [0.2.0] — 2026-10-20
 
 Local V5 optimization; **not published** to npm/GitHub.
