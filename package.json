@@ -41,7 +41,8 @@
     "build:watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm run build",
-    "test": "node --test test/plugin-updates.test.ts test/skills.test.ts test/updater.test.ts test/coordinator.test.ts test/repository.test.ts test/toolbar-model.test.ts test/task-skipped.test.ts test/path-model.test.ts test/icon-model.test.ts test/default-plugin-icon.test.ts"
+    "test": "node --test test/plugin-updates.test.ts test/skills.test.ts test/updater.test.ts test/coordinator.test.ts test/repository.test.ts test/toolbar-model.test.ts test/task-skipped.test.ts test/path-model.test.ts test/icon-model.test.ts test/default-plugin-icon.test.ts",
+    "test:lifecycle": "node scripts/dev/test-lifecycle.mjs"
   },
   "engines": {
     "node": ">=22.19.0"
