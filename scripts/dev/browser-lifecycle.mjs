@@ -9,8 +9,16 @@
  *   2. Did it really exit before I delete its profile directory?  (exit wait)
  *   3. If deletion failed, why - and is the failure visible?  (retry + report)
  *
+ * Process attribution has one more property: a browser can leave the process
+ * tree it was started in (Edge re-launches itself in some elevation paths), so
+ * a PID-only model is not enough. Every process is therefore attributed to a
+ * profile directory by parsing the `--user-data-dir` value out of its command
+ * line and comparing it *exactly* against the directory this tool created -
+ * never by image name, never by substring, never by directory naming alone.
+ *
  * Nothing here ever terminates processes by image name. Every termination is
- * addressed to one explicitly tracked PID, plus its child tree on Windows.
+ * addressed to one explicitly identified PID, and (when the caller has one)
+ * guarded by the creation timestamp of the process that was inspected.
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -28,6 +36,14 @@ import { basename, dirname, join, resolve } from 'node:path'
 /** Directory names owned by this tool. Nothing else is ever touched. */
 export const PROFILE_PREFIX = 'dsh-em-chrome-'
 const PROFILE_NAME = /^dsh-em-chrome-\d{13}-\d{1,4}$/
+
+/** Image names that count as "the browser" when attributing profile owners. */
+export const BROWSER_IMAGES = ['msedge.exe', 'chrome.exe']
+
+const POWERSHELL_ARGS = ['-NoProfile', '-NonInteractive', '-Command']
+
+/** Creation timestamp format used by every PowerShell projection below. */
+const PS_CREATED = "@{n='created';e={ if ($_.CreationDate) { $_.CreationDate.ToString('yyyyMMddHHmmssfff') } else { '' } }}"
 
 /**
  * Creates a unique, traceable profile directory inside the OS temp root.
@@ -101,13 +117,205 @@ export function waitForExit(pid, timeoutMs, intervalMs = 150) {
 }
 
 /**
+ * Best-effort read of the `--user-data-dir` value out of a browser command
+ * line, for diagnostics. Truncates at whitespace, so a *display* value may be
+ * shorter than the real path; attribution never relies on this function.
+ */
+export function extractUserDataDir(commandLine) {
+  if (typeof commandLine !== 'string' || commandLine === '') return null
+  const match = /--user-data-dir=(?:"([^"]*)"|'([^']*)'|([^\s"]+))/.exec(commandLine)
+  if (match === null) return null
+  const value = match[1] ?? match[2] ?? match[3]
+  if (value === undefined || value === '') return null
+  return value
+}
+
+function normalizeForSearch(path) {
+  return String(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * True when the command line carries `--user-data-dir=<dir>` as a whole
+ * argument value.
+ *
+ * Matching the known directory textually - instead of parsing an unknown path
+ * out of the command line - is what makes this correct for quoted arguments and
+ * for paths containing spaces (`node` quotes the whole `--user-data-dir=...`
+ * argument, so a parser cannot tell where the value ends). The boundary check
+ * rejects prefix collisions such as `...-1` versus `...-11`.
+ */
+export function commandLineReferencesProfile(commandLine, dir) {
+  if (typeof commandLine !== 'string' || commandLine === '') return false
+  const haystack = commandLine.replace(/\\/g, '/').toLowerCase()
+  const needle = `--user-data-dir=${normalizeForSearch(dir)}`
+  const isBoundary = ch => ch === undefined || ch === '"' || ch === "'" || /\s/.test(ch)
+  let at = haystack.indexOf(needle)
+  while (at !== -1) {
+    const next = haystack[at + needle.length]
+    if (isBoundary(next)) return true
+    // A trailing separator is a boundary too, but only if nothing follows it -
+    // otherwise `...\b` would match the prefix of `...\b\c`.
+    if (next === '/' && isBoundary(haystack[at + needle.length + 1])) return true
+    at = haystack.indexOf(needle, at + 1)
+  }
+  return false
+}
+
+/**
+ * Processes whose command line points at exactly this profile directory.
+ * Exact, boundary-checked equality (not substring, not image name, not the
+ * directory naming convention alone) is what makes this safe: a sibling
+ * directory that merely shares a prefix, or an unrelated Edge window, never
+ * matches.
+ */
+export function findProfileOwners(dir, processes) {
+  return (processes ?? []).filter(entry =>
+    commandLineReferencesProfile(entry?.commandLine ?? entry?.cmd, dir))
+}
+
+function parseJsonList(stdout) {
+  const text = (stdout ?? '').trim()
+  if (text === '') return []
+  const parsed = JSON.parse(text)
+  return Array.isArray(parsed) ? parsed : [parsed]
+}
+
+/**
+ * One PowerShell call that returns every live browser process with the fields
+ * needed for attribution: pid, parent pid, image name, creation timestamp and
+ * command line.
+ *
+ * This is deliberately a *snapshot* API: a sweep over N profile directories
+ * costs one enumeration, not N. Callers that need to kill a process re-verify
+ * against a fresh snapshot (or a single-PID identity query) immediately before
+ * terminating, because a PID can be recycled between two snapshots.
+ */
+export function listBrowserProcesses({ imageNames = BROWSER_IMAGES, timeoutMs = 20000 } = {}) {
+  if (process.platform !== 'win32') {
+    return { ok: false, processes: [], detail: `process enumeration is Windows-only (platform ${process.platform})` }
+  }
+  const script = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    "$names=@($env:SHOT_IMAGES.ToLower().Split(';'))",
+    'Get-CimInstance Win32_Process'
+      + ' | Where-Object { $_.Name -and ($names -contains $_.Name.ToLower()) }'
+      + ` | Select-Object @{n='pid';e={[int]$_.ProcessId}},@{n='ppid';e={[int]$_.ParentProcessId}},@{n='name';e={[string]$_.Name}},${PS_CREATED},@{n='cmd';e={[string]$_.CommandLine}}`
+      + ' | ConvertTo-Json -Compress -Depth 3',
+  ].join('; ')
+  const executed = spawnSync('powershell', [...POWERSHELL_ARGS, script], {
+    windowsHide: true,
+    encoding: 'utf8',
+    env: { ...process.env, SHOT_IMAGES: imageNames.join(';') },
+    timeout: timeoutMs,
+  })
+  if (executed.error) return { ok: false, processes: [], detail: String(executed.error.message) }
+  if (executed.status !== 0) {
+    return { ok: false, processes: [], detail: `powershell exited ${String(executed.status)}: ${(executed.stderr ?? '').trim().slice(0, 240)}` }
+  }
+  try {
+    const processes = parseJsonList(executed.stdout).map(entry => ({
+      pid: Number(entry.pid),
+      parentPid: Number(entry.ppid),
+      name: String(entry.name ?? ''),
+      createdAt: String(entry.created ?? ''),
+      commandLine: String(entry.cmd ?? ''),
+    }))
+    return { ok: true, processes: processes.filter(entry => Number.isInteger(entry.pid) && entry.pid > 0), detail: '' }
+  } catch (error) {
+    return { ok: false, processes: [], detail: `could not parse process list: ${String(error.message).slice(0, 200)}` }
+  }
+}
+
+/**
+ * Identity of one PID: creation timestamp plus command line. Used to prove that
+ * the process about to be terminated is still the process that was inspected.
+ */
+export function queryProcessIdentity(pid) {
+  if (process.platform !== 'win32') {
+    return { ok: false, found: false, detail: `process enumeration is Windows-only (platform ${process.platform})` }
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return { ok: true, found: false, detail: 'invalid pid' }
+  const script = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    `Get-CimInstance Win32_Process -Filter "ProcessId=${String(pid)}"`
+      + ` | Select-Object @{n='pid';e={[int]$_.ProcessId}},@{n='name';e={[string]$_.Name}},${PS_CREATED},@{n='cmd';e={[string]$_.CommandLine}}`
+      + ' | ConvertTo-Json -Compress -Depth 3',
+  ].join('; ')
+  const result = spawnSync('powershell', [...POWERSHELL_ARGS, script], {
+    windowsHide: true,
+    encoding: 'utf8',
+    timeout: 15000,
+  })
+  if (result.error) return { ok: false, found: false, detail: String(result.error.message) }
+  let entries
+  try {
+    entries = parseJsonList(result.stdout)
+  } catch (error) {
+    return { ok: false, found: false, detail: `could not parse identity: ${String(error.message).slice(0, 200)}` }
+  }
+  const entry = entries[0]
+  if (entry === undefined) return { ok: true, found: false, detail: 'process not found' }
+  return {
+    ok: true,
+    found: true,
+    pid: Number(entry.pid),
+    name: String(entry.name ?? ''),
+    createdAt: String(entry.created ?? ''),
+    commandLine: String(entry.cmd ?? ''),
+    detail: '',
+  }
+}
+
+/**
  * Last-resort termination of a *specific* PID and its children on Windows.
  * `taskkill /T` walks the child tree, so a browser process that relaunched
- * itself and is no longer a direct child of this script is still covered.
- * Killing by image name (`/IM`) is deliberately never used.
+ * itself and is still inside the same tree is covered. Killing by image name
+ * (`/IM`) is deliberately never used.
+ *
+ * Two optional guards make the caller state its evidence explicitly:
+ *   - expectedProfileDir: refuse when the live PID's `--user-data-dir` differs
+ *     (this is what a recycled PID looks like);
+ *   - expectedCreatedAt: refuse when the live PID's creation timestamp differs.
+ * Both close the "inspect, then terminate" window to a small race, not to zero.
  */
-export function terminateProcessTree(pid) {
+export function terminateProcessTree(pid, options = {}) {
   if (!isProcessAlive(pid)) return { ok: true, method: 'already-exited', detail: '' }
+
+  let identityVerified = null
+  const needsIdentity = options.expectedCreatedAt !== undefined || options.expectedProfileDir !== undefined
+  if (needsIdentity) {
+    const identity = queryProcessIdentity(pid)
+    if (!identity.ok) {
+      // Cannot prove identity: for a PID this tool never started, refuse.
+      if (options.requireIdentity === true) {
+        return { ok: false, refused: true, method: 'identity-unknown', detail: identity.detail }
+      }
+      identityVerified = false
+    } else if (!identity.found) {
+      return { ok: true, method: 'already-exited', detail: 'process disappeared before termination' }
+    } else {
+      if (options.expectedCreatedAt !== undefined && identity.createdAt !== options.expectedCreatedAt) {
+        return {
+          ok: false,
+          refused: true,
+          method: 'identity-mismatch',
+          detail: `pid ${String(pid)} is now created at ${identity.createdAt}, expected ${String(options.expectedCreatedAt)}`,
+        }
+      }
+      if (options.expectedProfileDir !== undefined) {
+        if (!commandLineReferencesProfile(identity.commandLine, options.expectedProfileDir)) {
+          return {
+            ok: false,
+            refused: true,
+            method: 'identity-mismatch',
+            detail: `pid ${String(pid)} does not carry --user-data-dir=${String(options.expectedProfileDir)}`,
+          }
+        }
+      }
+      identityVerified = true
+    }
+  }
+
   const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
     windowsHide: true,
     encoding: 'utf8',
@@ -118,32 +326,86 @@ export function terminateProcessTree(pid) {
     method: 'taskkill /PID /T /F',
     status: result.status,
     detail,
+    identityVerified,
   }
 }
 
 /**
- * Diagnostic only: which live processes still reference this profile path.
- * Used when a delete fails, to turn an opaque EBUSY into an actionable report.
+ * Reclaims browsers that survived the tracked-PID kill because they left the
+ * process tree (Edge re-launching itself, a child outliving its parent).
+ *
+ * Each attempt takes a fresh snapshot, re-derives the owners of *this* profile
+ * directory only, and terminates them with the creation timestamp from that
+ * same snapshot. Attempts are bounded; the result always reports what was
+ * killed, what was refused, and what is still alive.
  */
-export function findProcessesUsingDir(dir) {
-  const script = [
-    "$ErrorActionPreference='SilentlyContinue'",
-    'Get-CimInstance Win32_Process',
-    "| Where-Object { ($_.Name -eq 'msedge.exe' -or $_.Name -eq 'chrome.exe') -and $_.CommandLine -and $_.CommandLine.Contains($env:SHOT_PROFILE_DIR) }",
-    '| Select-Object -ExpandProperty ProcessId',
-  ].join(' ')
-  const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    windowsHide: true,
-    encoding: 'utf8',
-    env: { ...process.env, SHOT_PROFILE_DIR: dir },
-    timeout: 15000,
-  })
-  if (result.error) return { ok: false, pids: [], detail: String(result.error.message) }
-  const pids = (result.stdout ?? '')
-    .split(/\r?\n/)
-    .map(line => Number(line.trim()))
-    .filter(value => Number.isInteger(value) && value > 0)
-  return { ok: true, pids, detail: (result.stderr ?? '').trim() }
+export function reapProfileOwners(dir, options = {}) {
+  const attempts = options.attempts ?? 3
+  const delayMs = options.delayMs ?? 400
+  const exitTimeoutMs = options.exitTimeoutMs ?? 3000
+  const imageNames = options.imageNames ?? BROWSER_IMAGES
+  const listProcesses = options.listProcesses ?? listBrowserProcesses
+  const kill = options.kill ?? ((pid, killOptions) => terminateProcessTree(pid, killOptions))
+
+  const report = { ok: true, unknown: false, terminated: [], refused: [], remaining: [], attempts: 0, queries: 0, lastError: null, rejected: null }
+
+  // Safety gate: only a directory this tool would create is ever "owned".
+  if (!PROFILE_NAME.test(basename(resolve(dir)))) {
+    return { ...report, ok: false, rejected: `not a profile directory of this tool: ${String(dir)}` }
+  }
+  if (options.root !== undefined && dirname(resolve(dir)) !== resolve(options.root)) {
+    return { ...report, ok: false, rejected: `profile directory escaped the sweep root: ${String(dir)}` }
+  }
+
+  let owners = []
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    report.attempts = attempt
+    const snapshot = listProcesses({ imageNames })
+    report.queries += 1
+    if (!snapshot.ok) {
+      report.ok = false
+      report.unknown = true
+      report.lastError = snapshot.detail
+      report.remaining = owners.map(entry => entry.pid)
+      return report
+    }
+    owners = findProfileOwners(dir, snapshot.processes)
+    if (owners.length === 0) return report
+    for (const owner of owners) {
+      const outcome = kill(owner.pid, { expectedCreatedAt: owner.createdAt, requireIdentity: true })
+      if (outcome.refused === true) {
+        report.refused.push({ pid: owner.pid, createdAt: owner.createdAt, detail: outcome.detail })
+        continue
+      }
+      report.terminated.push({ pid: owner.pid, createdAt: owner.createdAt, ok: outcome.ok, method: outcome.method, detail: outcome.detail })
+      if (outcome.ok) waitForExit(owner.pid, exitTimeoutMs)
+    }
+    if (attempt < attempts) sleepSync(delayMs)
+  }
+
+  const finalSnapshot = listProcesses({ imageNames })
+  report.queries += 1
+  if (finalSnapshot.ok) {
+    report.remaining = findProfileOwners(dir, finalSnapshot.processes).map(entry => entry.pid)
+  } else {
+    report.unknown = true
+    report.lastError = finalSnapshot.detail
+    report.remaining = owners.map(entry => entry.pid)
+  }
+  report.ok = report.remaining.length === 0 && !report.unknown
+  return report
+}
+
+/**
+ * Diagnostic view of which live processes still reference this profile path.
+ * Shares the exact attribution rule used by the reaper, so a report and a kill
+ * decision can never disagree.
+ */
+export function findProcessesUsingDir(dir, options = {}) {
+  const listProcesses = options.listProcesses ?? listBrowserProcesses
+  const snapshot = listProcesses({ imageNames: options.imageNames ?? BROWSER_IMAGES })
+  if (!snapshot.ok) return { ok: false, pids: [], detail: snapshot.detail }
+  return { ok: true, pids: findProfileOwners(dir, snapshot.processes).map(entry => entry.pid), detail: '' }
 }
 
 /**
@@ -172,46 +434,75 @@ export function removeDirWithRetry(dir, options = {}) {
 
 /**
  * Removes stale profile directories left behind by earlier interrupted runs.
- * Only directories that match this tool's naming convention, are older than
- * the cutoff, and are not referenced by a live browser process are eligible.
+ *
+ * Ownership is resolved from a *single* process snapshot taken once for the
+ * whole sweep, so the cost no longer grows with the number of candidates
+ * (previously each candidate started its own PowerShell). The safety rules are
+ * unchanged: naming convention, age cutoff, no live owner, real-path gate,
+ * bounded delete retry. If the snapshot cannot be read, every candidate is
+ * skipped - "unknown" is never treated as "free".
  */
-export function sweepStaleProfiles({ root = tmpdir(), olderThanHours = 0, now = Date.now() } = {}) {
+export function sweepStaleProfiles(options = {}) {
+  const root = options.root ?? tmpdir()
+  const olderThanHours = options.olderThanHours ?? 0
+  const now = options.now ?? Date.now()
+  const imageNames = options.imageNames ?? BROWSER_IMAGES
+  const listProcesses = options.listProcesses ?? listBrowserProcesses
+  const statOf = options.stat ?? (target => statSync(target))
   const cutoff = now - olderThanHours * 3600 * 1000
   const swept = []
   const skipped = []
-  let names = []
+  let processQueries = 0
+
+  let names
   try {
     names = readdirSync(root)
   } catch (error) {
-    return { swept, skipped, error: String(error.message) }
+    return { swept, skipped, processQueries, error: String(error.message) }
   }
+
+  const candidates = []
   for (const name of names) {
     if (!PROFILE_NAME.test(name)) continue
     const dir = join(root, name)
     let stat
     try {
-      stat = statSync(dir)
+      stat = statOf(dir)
     } catch {
       continue
     }
     if (!stat.isDirectory()) continue
-    if (stat.mtimeMs > cutoff) {
-      skipped.push({ dir, reason: 'newer than cutoff' })
+    candidates.push({ dir, mtimeMs: stat.mtimeMs })
+  }
+  if (candidates.length === 0) return { swept, skipped, processQueries }
+
+  const snapshot = listProcesses({ imageNames })
+  processQueries += 1
+  if (!snapshot.ok) {
+    for (const candidate of candidates) {
+      skipped.push({ dir: candidate.dir, reason: `ownership unknown: ${String(snapshot.detail)}` })
+    }
+    return { swept, skipped, processQueries, error: snapshot.detail }
+  }
+
+  for (const candidate of candidates) {
+    if (candidate.mtimeMs > cutoff) {
+      skipped.push({ dir: candidate.dir, reason: 'newer than cutoff' })
       continue
     }
-    const owners = findProcessesUsingDir(dir)
-    if (!owners.ok || owners.pids.length > 0) {
-      skipped.push({ dir, reason: owners.ok ? `in use by pid ${owners.pids.join(',')}` : 'ownership check failed' })
+    const owners = findProfileOwners(candidate.dir, snapshot.processes)
+    if (owners.length > 0) {
+      skipped.push({ dir: candidate.dir, reason: `in use by pid ${owners.map(entry => entry.pid).join(',')}` })
       continue
     }
     try {
-      assertSafeProfileDir(dir, root)
+      assertSafeProfileDir(candidate.dir, root)
     } catch (error) {
-      skipped.push({ dir, reason: error.message })
+      skipped.push({ dir: candidate.dir, reason: error.message })
       continue
     }
-    const removal = removeDirWithRetry(dir)
-    swept.push({ dir, removed: removal.removed, attemptCount: removal.attemptCount, lastError: removal.lastError })
+    const removal = removeDirWithRetry(candidate.dir)
+    swept.push({ dir: candidate.dir, removed: removal.removed, attemptCount: removal.attemptCount, lastError: removal.lastError })
   }
-  return { swept, skipped }
+  return { swept, skipped, processQueries }
 }

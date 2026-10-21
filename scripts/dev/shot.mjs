@@ -31,10 +31,19 @@
  *     browser is closed through CDP `Browser.close` first;
  *   - if it is still alive afterwards, `taskkill /PID <pid> /T /F` is used on
  *     that exact PID - never by image name, so unrelated Edge windows are safe;
+ *   - before the profile directory is deleted the process list is re-enumerated
+ *     and any browser whose command line carries *this* profile directory is
+ *     reclaimed, because a browser that left the process tree - Edge
+ *     re-launching itself, or a browser outliving the process we spawned - is
+ *     no longer reachable through `taskkill /T`;
  *   - the profile directory is deleted only after the process is gone, with
  *     bounded retries and a visible failure report (no silent catch blocks);
  *   - SIGINT/SIGTERM/SIGHUP/uncaughtException still reap, because an
  *     interrupted verification run used to leak a browser and ~250 MB.
+ *
+ * Known limit: a process killed with TerminateProcess (agent timeout, closed
+ * terminal) runs no JavaScript at all, so no exit hook can help it. That case
+ * is covered by the startup sweep on the next run, not by `finally`.
  */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -44,7 +53,10 @@ import {
   assertSafeProfileDir,
   createProfileDir,
   findProcessesUsingDir,
+  findProfileOwners,
   isProcessAlive,
+  listBrowserProcesses,
+  reapProfileOwners,
   removeDirWithRetry,
   sweepStaleProfiles,
   terminateProcessTree,
@@ -113,6 +125,9 @@ const state = {
   keepProfile: flag('keep-profile'),
   gracefulTimeoutMs: 0,
   forceTimeoutMs: 0,
+  // Bounded budget for reclaiming browsers that survived the tree kill.
+  reapAttempts: 3,
+  reapDelayMs: 400,
   shuttingDown: false,
   reaped: false,
   cleanup: null,
@@ -162,10 +177,41 @@ async function requestBrowserClose() {
   }
 }
 
+/**
+ * Re-enumerates the live process list and reclaims browsers that still carry
+ * this run's profile directory but were not reachable through `taskkill /T`
+ * (they left the process tree). Only exact `--user-data-dir` matches are
+ * terminated, with the creation timestamp from the same snapshot as evidence.
+ */
+function reclaimDetachedBrowsers(report, attempts, delayMs) {
+  if (state.profileDir === null) return null
+  const result = reapProfileOwners(state.profileDir, {
+    root: state.profileRoot,
+    attempts,
+    delayMs,
+  })
+  report.reclaimed = result
+  report.reclaimUnknown = result.unknown === true
+  report.lingering = result.remaining
+  for (const entry of result.terminated) {
+    if (entry.ok) log(`[cleanup] reclaimed detached browser pid ${String(entry.pid)} (matched --user-data-dir)`)
+    else warn(`[cleanup] could not reclaim pid ${String(entry.pid)}: ${entry.detail}`)
+  }
+  for (const entry of result.refused) {
+    warn(`[cleanup] refused to terminate pid ${String(entry.pid)}: identity changed (${entry.detail})`)
+  }
+  if (result.rejected !== null) warn(`[cleanup] reclaim skipped: ${String(result.rejected)}`)
+  if (result.unknown) {
+    warn(`[cleanup] could not enumerate browser processes (${String(result.lastError)}); residual processes unverified`)
+  }
+  if (result.remaining.length > 0) warn(`[cleanup] browser still alive after reclaim: pid ${result.remaining.join(', ')}`)
+  return result
+}
+
 async function shutdown(reason) {
   if (state.shuttingDown) return state.cleanup
   state.shuttingDown = true
-  const report = { reason, graceful: null, forced: null, directory: null, lingering: [] }
+  const report = { reason, graceful: null, forced: null, reclaimed: null, directory: null, lingering: [], reclaimUnknown: false }
   state.cleanup = report
 
   await closePageSocket()
@@ -173,17 +219,27 @@ async function shutdown(reason) {
   if (state.browserPid !== null && isProcessAlive(state.browserPid)) {
     report.graceful = await requestBrowserClose()
     if (!waitForExit(state.browserPid, state.gracefulTimeoutMs)) {
-      report.forced = terminateProcessTree(state.browserPid)
+      // The profile directory on the live command line is the identity proof:
+      // a recycled PID no longer carries it, and is therefore never terminated.
+      report.forced = terminateProcessTree(state.browserPid, { expectedProfileDir: state.profileDir })
+      if (report.forced.refused === true) {
+        warn(`[cleanup] refusing to force-terminate pid ${String(state.browserPid)}: ${report.forced.detail}`)
+      }
       waitForExit(state.browserPid, state.forceTimeoutMs)
     }
     if (isProcessAlive(state.browserPid)) {
-      const owners = findProcessesUsingDir(state.profileDir)
-      report.lingering = owners.pids
       warn(`[cleanup] browser pid ${String(state.browserPid)} survived force termination`)
     }
   }
 
   if (state.profileDir === null) return report
+
+  // Always re-enumerate before deleting, not only after a forced kill. The PID
+  // we track is the process we spawned, and Edge can outlive it while it finishes
+  // shutting down - measured: deleting the directory at that moment leaves a
+  // re-created 7 MB skeleton behind. Any browser whose command line still points
+  // at this exact directory is reclaimed here, so the delete is not racing it.
+  reclaimDetachedBrowsers(report, state.reapAttempts, state.reapDelayMs)
 
   if (state.keepProfile) {
     report.directory = { removed: false, kept: true }
@@ -205,16 +261,34 @@ async function shutdown(reason) {
     return report
   }
 
-  const removal = removeDirWithRetry(safeDir)
+  let removal = removeDirWithRetry(safeDir)
+  if (removal.removed && existsSync(safeDir)) {
+    // Re-created between the delete and this check: the writer is still alive.
+    warn('[cleanup] profile directory reappeared after removal; reclaiming once more')
+    reclaimDetachedBrowsers(report, 2, 200)
+    removal = removeDirWithRetry(safeDir)
+  }
+  if (!removal.removed) {
+    // A live process holding the directory is the only actionable cause. Find
+    // the owners of this exact profile, reclaim them, then retry the delete -
+    // otherwise the report just says "in use" without acting on it.
+    const before = findProcessesUsingDir(safeDir)
+    if (before.pids.length > 0) warn(`[cleanup] profile directory is held by pid ${before.pids.join(', ')}; reclaiming`)
+    const reclaim = reclaimDetachedBrowsers(report, 2, 200)
+    if (reclaim !== null && reclaim.remaining.length === 0 && reclaim.terminated.some(entry => entry.ok)) {
+      removal = removeDirWithRetry(safeDir)
+    }
+  }
   report.directory = removal
   if (!removal.removed) {
-    const owners = findProcessesUsingDir(safeDir)
-    report.lingering = owners.pids
     warn('[cleanup] FAILED to remove profile directory')
     warn(`[cleanup]   path: ${safeDir}`)
     warn(`[cleanup]   attempts: ${String(removal.attemptCount)}`)
     warn(`[cleanup]   last error: ${removal.lastError.code} ${removal.lastError.message}`)
+    const owners = findProcessesUsingDir(safeDir)
+    report.lingering = owners.pids
     if (owners.pids.length > 0) warn(`[cleanup]   still referenced by pid: ${owners.pids.join(', ')}`)
+    if (!owners.ok) warn(`[cleanup]   owner lookup failed: ${owners.detail}`)
   }
   return report
 }
@@ -228,12 +302,24 @@ function syncReap() {
   state.reaped = true
   if (state.browserPid !== null && isProcessAlive(state.browserPid)) {
     try {
-      terminateProcessTree(state.browserPid)
+      terminateProcessTree(state.browserPid, { expectedProfileDir: state.profileDir })
     } catch (error) {
       warn(`[cleanup] exit-time termination failed: ${error.message}`)
     }
   }
   if (state.profileDir && !state.keepProfile && existsSync(state.profileDir)) {
+    // The directory is still here, so something may still hold it: one bounded
+    // pass over the profile owners, then one bounded delete.
+    try {
+      const snapshot = listBrowserProcesses()
+      if (snapshot.ok) {
+        for (const owner of findProfileOwners(state.profileDir, snapshot.processes)) {
+          terminateProcessTree(owner.pid, { expectedCreatedAt: owner.createdAt, requireIdentity: true })
+        }
+      }
+    } catch (error) {
+      warn(`[cleanup] exit-time reclaim failed: ${error.message}`)
+    }
     try {
       const removal = removeDirWithRetry(state.profileDir, { attempts: 3, baseDelayMs: 100, maxDelayMs: 400 })
       if (!removal.removed) warn(`[cleanup] exit-time removal failed for ${state.profileDir}`)
@@ -325,14 +411,20 @@ async function main() {
 
   const sweepHours = numberArg('sweep-stale-hours', 24)
   if (sweepHours > 0) {
+    // One process enumeration covers every candidate directory, so a backlog of
+    // a hundred leftovers costs one PowerShell launch instead of a hundred.
     const swept = sweepStaleProfiles({ root: profileRoot, olderThanHours: sweepHours })
     if (swept.swept.length > 0) {
-      log(`[cleanup] swept ${String(swept.swept.length)} stale profile director${swept.swept.length === 1 ? 'y' : 'ies'}`)
+      log(`[cleanup] swept ${String(swept.swept.length)} stale profile director${swept.swept.length === 1 ? 'y' : 'ies'} (${String(swept.processQueries)} process enumeration)`)
       for (const entry of swept.swept) {
         if (!entry.removed) warn(`[cleanup]   could not remove ${entry.dir}: ${entry.lastError.code} ${entry.lastError.message}`)
       }
     }
-    if (swept.skipped.length > 0) log(`[cleanup] skipped ${String(swept.skipped.length)} director${swept.skipped.length === 1 ? 'y' : 'ies'} (in use or too new)`)
+    if (swept.skipped.length > 0) {
+      log(`[cleanup] skipped ${String(swept.skipped.length)} director${swept.skipped.length === 1 ? 'y' : 'ies'} (in use, too new, or unsafe)`)
+      for (const entry of swept.skipped.slice(0, 5)) warn(`[cleanup]   skipped ${entry.dir}: ${entry.reason}`)
+      if (swept.skipped.length > 5) log(`[cleanup]   ... and ${String(swept.skipped.length - 5)} more`)
+    }
   }
 
   // Profile directory and browser are both created inside the try: from here on
