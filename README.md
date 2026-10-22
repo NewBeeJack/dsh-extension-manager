@@ -1,5 +1,7 @@
 # DSH Extension Manager
 
+> This guide describes the published **0.4.6** release. Its source is on [maintenance/0.4.x](https://github.com/NewBeeJack/dsh-extension-manager/tree/maintenance/0.4.x) (release tag [v0.4.6](https://github.com/NewBeeJack/dsh-extension-manager/tree/v0.4.6)). The **main** branch retains the older 0.1.1 source; use the release tag or maintenance branch for the development commands below.
+
 [![CI](https://github.com/NewBeeJack/dsh-extension-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/NewBeeJack/dsh-extension-manager/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/dsh-extension-manager.svg)](https://www.npmjs.com/package/dsh-extension-manager)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -10,11 +12,11 @@ A native **DSH (DeepSeek Harness)** plugin that inventories, checks and safely u
 
 It is a real settings section, not a standalone site: **Settings → 扩展管理器 (Extension Manager)**. All data comes from Host-side reads of the plugin manager, the live Skills registry, profile manifests, pnpm lockfiles, npm registries, GitHub and `git ls-remote`. Updates run as durable transactions with verified backups and automatic rollback.
 
-![Extension Manager — Plugins page](docs/screenshots/plugins.png)
+![Extension Manager — Plugins page](https://github.com/NewBeeJack/dsh-extension-manager/raw/maintenance/0.4.x/docs/screenshots/plugins.png)
 
 ## Features
 
-- **One page, two inventories.** A segmented **Plugins / Skills** control, five-cell stats, source groups, search, status/source filters, sorting, workspace-aware Skills scanning, details dialogs and per-record update history.
+- **One page, two inventories.** A segmented **Plugins / Skills** control, three primary stats with expandable details, source groups, search, status/source filters, sorting, workspace-aware Skills scanning, details dialogs and per-record update history.
 - **Plugins**: installed third-party bundles, the Loader rows they contribute, runtime loaded/failed state, install spec/version/provenance, and read-only views of other readable profiles. DSH-shipped components are intentionally excluded — DSH's own **Built-in plugins** page manages them.
 - **Skills**: physical copies vs. runtime-visible skills, same-name shadowing, unmanaged roots, invocation policy, provenance and local-modification state.
 - **Update checks**: npm registry lookup with private-registry isolation and DSH-compatibility evaluation; git installs through `git ls-remote`; Skills through GitHub trees API and `.skill-lock.json` folder hashes. Failures and rate limits are reported, never rendered as “up to date”.
@@ -24,7 +26,28 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 | Skills page | Diagnostics |
 | --- | --- |
-| ![Skills page](docs/screenshots/skills.png) | ![Diagnostics dialog](docs/screenshots/diagnostics.png) |
+| ![Skills page](https://github.com/NewBeeJack/dsh-extension-manager/raw/maintenance/0.4.x/docs/screenshots/skills.png) | ![Diagnostics dialog](https://github.com/NewBeeJack/dsh-extension-manager/raw/maintenance/0.4.x/docs/screenshots/diagnostics.png) |
+
+## What's new in 0.4.6
+
+Version **0.4.6** is available on [npm](https://www.npmjs.com/package/dsh-extension-manager/v/0.4.6) and [GitHub Releases](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6). This patch hardens the development browser tools; it does not change the plugin's runtime behavior.
+
+- **Browser ownership checks**: screenshot and dialog-layout tools use separate temporary-profile namespaces, validate profile paths and identify processes by their exact profile directory before cleanup.
+- **Verified CDP connections**: the layout tool reads `DevToolsActivePort` from its own profile and verifies the page target before navigation. Shutdown prefers browser-level `Browser.close`, then falls back to cleanup scoped to that profile.
+- **Bounded cleanup**: external waits and deletion retries have deadlines; shutdown is idempotent across normal completion and signal handling.
+- **Regression coverage**: dedicated browser-lifecycle and layout-guard suites supplement the existing unit tests. Their platform requirements and validation limits are described under [Development](#development).
+
+See the [release notes](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6) for the full change list and known limits.
+
+### UI highlights carried forward from 0.4.5
+
+- **V3 visual refresh**: soft semantic stat cards, real package icons with a local network-node default for Plugins and a document fallback for Skills, three-layer extension cards with full install-directory copy, compact check-result summary with partial-failure warning, header diagnostics and a measured single-row toolbar.
+- **V2.1 fixes**: Plugins and Skills each own their task result panel, details-expanded state and dismissed state; group headers remain collapsible with filters/sorting; list rows keep only one “view details” arrow (details and batch update retain the existing actions).
+- **Toolbar V2**: search, filter, refresh-list, check-updates and the conditional black update-all are measured against the real content width; they stay on one line when their natural widths fit, keep labels unwrapped and use a common 34 px control height. The update-all count comes from the existing read-only batch plan, and the button stays hidden until a complete successful check.
+- **One-screen detail dialogs**: Plugins and Skills now open with only basic info, the project repository, the installation location and update status. All former technical sections, diagnostics, update history, contribution rows and same-name copy details are behind a default-collapsed “高级信息与诊断”.
+- **Traceable repository links**: a read-only resolver handles package.json repository declarations, git/GitHub install provenance, GitHub HTTPS/SSH/shorthand spellings, monorepo subdirectories and honest non-link states. It never changes update sources and never guesses a repository from a name.
+- **Preserved capabilities**: full paths remain copyable, update check/update actions, diagnostics, history and every previous technical field remain available.
+- The V5 foundation (three stats, compact toolbar/filter panel, UpdateCoordinator, Skills scope/conflicts, inventory cache and on-demand rendering) is unchanged.
 
 ## Requirements
 
@@ -38,34 +61,39 @@ It is a real settings section, not a standalone site: **Settings → 扩展管�
 
 ## Installation
 
-### From npm registry (easiest)
+### From npm (recommended)
 
 ```bash
-dsh plugin --profile web add dsh-extension-manager
-# pin a version: dsh plugin --profile web add dsh-extension-manager@0.1.1
+dsh plugin --profile web add dsh-extension-manager@0.4.6
 ```
 
-The npm package name also works directly in DSH's **Plugins → Add plugin** dialog. Then enable the bundle and restart DSH as described below.
+Omit `@0.4.6` to install the version tagged `latest` on your configured registry.
 
 ### From a release tarball
 
-1. Download `dsh-extension-manager-0.1.1.tgz` from the [latest release](https://github.com/NewBeeJack/dsh-extension-manager/releases/latest).
-2. Install it into a DSH profile (example: `web`):
+Download `dsh-extension-manager-0.4.6.tgz` and `SHA256SUMS` from the [GitHub Release](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6). Verify the archive against `SHA256SUMS` before installing it (`sha256sum -c SHA256SUMS`, or `Get-FileHash -Algorithm SHA256 <path-to-tarball>` in PowerShell and compare the hash).
 
-   ```bash
-   dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.1.1.tgz"
-   ```
+```bash
+dsh plugin --profile web add "<absolute path>/dsh-extension-manager-0.4.6.tgz"
+```
 
-3. Enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to `dsh.profile.bundles` in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI.
-4. Restart DSH (or let HMR recompose the profile). Open **Settings → 扩展管理器**.
+### Enable the bundle
 
-### From source
+After either installation method, enable the bundle. `dsh plugin` forwards to pnpm and does **not** select the bundle, so add `"dsh-extension-manager"` to the existing `dsh.profile.bundles` array in `$DSH_HOME/profiles/web/package.json`, or enable it from the DSH plugin manager UI. Preserve the other bundle entries. Restart DSH (or let HMR recompose the profile). Open **Settings → 扩展管理器**.
+
+### Upgrade the manager
+
+The manager excludes itself from in-page update checks and updates, including when installed from npm. To upgrade to this release, run the npm or tarball installation command above for the same profile, then restart DSH. Publishing to npm does not enable in-page self-update.
+
+### Build from source
+
+Use tag `v0.4.6` for the released source, or `maintenance/0.4.x` for ongoing maintenance. From the repository root:
 
 ```bash
 npm ci
 npm run build          # lib/index.js (Host ESM) + lib/client.js (Web client)
-npm test               # 98 unit tests
-npm pack               # dsh-extension-manager-0.1.1.tgz
+npm test               # 131 unit tests
+npm pack               # dsh-extension-manager-<package.json version>.tgz
 ```
 
 Then install the packed tarball as above. For iterative development use `dsh plugin --profile web add "link:<path-to-checkout>"` and rebuild; the client bundle hot-swaps and `node scripts/dev/reload-host.mjs` can trigger a Host recomposition.
@@ -111,7 +139,19 @@ npm test
 npm run build
 ```
 
-- `test/*.test.ts` — 98 unit tests (native Node TS runner, no build step): registry/git/lockfile parsing, compatibility, transaction state machine, backups, archive extraction, rollback and crash recovery.
+The commands below require a source checkout; development scripts are not included in the npm package.
+
+- `test/*.test.ts` — 131 unit tests (native Node TS runner, no build step): registry/git/lockfile parsing, compatibility, transaction state machine, backups, archive extraction, rollback and crash recovery.
+- **Browser lifecycle regressions** (separate from `npm test`):
+
+  ```bash
+  npm run test:lifecycle
+  node scripts/dev/test-layout-guard.mjs
+  ```
+
+  The lifecycle suite has 18 cases and requires Windows plus an installed Edge or Chrome browser (`npm run test:lifecycle -- --browser <path>` selects the executable). On other platforms it reports a skip; exit code 0 alone does not mean the cases ran. The layout-guard suite has 55 cases covering endpoint ownership, timeouts, identity refusal and launch arguments. These suites do not replace a full real-browser isolation check.
+
+  The recorded real-Edge isolation check covers Edge 155.0.4283.62 on one Windows account. It was not rerun for the 0.4.6 release. The PID-reuse window is narrowed, not eliminated; elevated/unelevated restart scenarios remain untested.
 - **Isolated acceptance environment** (never touches your real `~/.dsh` / `~/.agents`):
 
   ```bash
@@ -122,14 +162,28 @@ npm run build
   ```
 
   The scenarios cover npm/git/Skills updates, rollback, local-modification conflicts, batch/concurrency, interrupted-install recovery and Windows file locks.
-- **Dialog layout regression** (CDP, headless Chrome):
+- **Dialog layout regression** (CDP, headless Chrome by default; use `--chrome <path>` for Edge):
 
   ```bash
   node scripts/dev/verify-dialog-layout.mjs --url "http://127.0.0.1:3080/?token=..." \
-    --cookie scripts/dev/cookie.json --sizes "1920x1080,1536x864,1366x768,1093x614,911x512,683x384"
+    --sizes "1920x1080,1536x864,1366x768,1093x614,911x512,683x384"
   ```
 
-  It opens every dialog, asserts 24px/24px top/bottom spacing, no footer overlap, scrollable body with a readable last line, multiple viewport sizes and dark mode. See [docs/dialog-layout.md](docs/dialog-layout.md).
+  Replace the placeholder with a fresh DSH token URL. `--cookie <cookie.json>` is optional when using a token URL. Keep token URLs and cookie files private. It opens every dialog, asserts 24px/24px top/bottom spacing, no footer overlap, scrollable body with a readable last line, multiple viewport sizes and dark mode. See [docs/dialog-layout.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/dialog-layout.md).
+
+## Performance snapshot (local, V5)
+
+The list switches to windowed rendering above 100 visible rows, using the preview data set (`?emFixture=1&emRows=N`) on the local machine:
+
+| Rows in inventory | Mounted `.em-row` | Total DOM nodes | Manager open | Search |
+| --- | --- | --- | --- | --- |
+| 21 | 21 | ~1.4k | 252 ms | 4 ms |
+| 61 | 61 | ~2.5k | 237 ms | 6 ms |
+| 211 | 8 | ~1.0k | 246 ms | 6 ms |
+| 511 | 8 | ~1.0k | 232 ms | 8 ms |
+| 1011 | 8 | ~1.0k | 236 ms | 8 ms |
+
+These numbers are from Edge headless against the isolated demo profile; the full data set stays in memory for filtering, counting and bulk updates. They are a snapshot, not a guarantee for other machines.
 
 ## Project layout
 
@@ -145,14 +199,16 @@ docs/            Architecture, dialog-layout contract, test/acceptance summary
 ## Documentation
 
 - [README.zh.md](README.zh.md) — full Chinese guide: installation, every UI element, check/update rules, recovery, maintenance, limitations, troubleshooting.
-- [docs/architecture.md](docs/architecture.md) — Host/client design, data model, transaction state machine, security model.
-- [docs/dialog-layout.md](docs/dialog-layout.md) — dialog spacing contract and automated visual regression.
-- [docs/testing.md](docs/testing.md) — test suites, isolated acceptance scenarios and verification results.
+- [docs/architecture.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/architecture.md) — Host/client design, data model, transaction state machine, security model.
+- [docs/dialog-layout.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/dialog-layout.md) — dialog spacing contract and automated visual regression.
+- [docs/testing.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/testing.md) — test suites, isolated acceptance scenarios and verification results.
+- [docs/v5-optimization.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/v5-optimization.md) — the local V5 optimization record (UI, coordinator, Skills scope, cache/virtualization, measurements).
+- [docs/v6-details.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/v6-details.md) — V6 detail-dialog structure, repository resolution and verification.
 
 ## Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please run `npm run typecheck && npm test && npm run build` before opening a PR. For security reports, follow [SECURITY.md](SECURITY.md).
+Issues and pull requests are welcome — see [CONTRIBUTING.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/CONTRIBUTING.md). Please run `npm run typecheck && npm test && npm run build` before opening a PR. For security reports, follow [SECURITY.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/LICENSE)

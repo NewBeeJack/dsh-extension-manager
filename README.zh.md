@@ -1,16 +1,26 @@
 # DSH 扩展管理器（dsh-extension-manager）
 
+> 本指南介绍已发布的 **0.4.6**。对应源码位于 [maintenance/0.4.x](https://github.com/NewBeeJack/dsh-extension-manager/tree/maintenance/0.4.x)，发布标签为 [v0.4.6](https://github.com/NewBeeJack/dsh-extension-manager/tree/v0.4.6)。**main** 分支仍保留旧版 0.1.1 源码；执行本文构建与开发命令前，请切换到发布标签或维护分支。
+
 统一查看、检查并安全更新本机 Plugins 与 Skills 的 DSH 原生插件。
 
 - 页面入口：DSH Web GUI 的 **Settings → 扩展管理器**（内置设置分区，不是独立网页或独立端口）。
 - 兼容基线：**DSH 0.2.1-rc.2**（Windows 环境实测，见 §11）。
-- 当前版本：0.1.1（npm 包名 `dsh-extension-manager`；也可用本地 tarball 安装）。管理器自身不支持页面内自更新（见 §8.6）。
+- 当前版本：**0.4.6**，已发布到 [npm](https://www.npmjs.com/package/dsh-extension-manager/v/0.4.6) 与 [GitHub Releases](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6)。管理器自身不支持页面内自更新（见 §8.6）。
 - 所有数据来自 Host 侧真实读取：`ctx.pluginManager.listBundles()` / `listPlugins()`、`ctx.skills.snapshot()`、`skill-filesystem` 运行时配置、profile 清单与 pnpm 锁文件、npm Registry、GitHub、`git ls-remote`。
 - 更新通过持久化事务执行：备份 → 下载 → 暂存校验 → 安装 → 读回校验 → 需要时等待重启；失败自动回滚。
 
-> 本文档对应 **v0.1.1**（DSH 0.2.1-rc.2 基线）。功能描述全部取自本仓库源码；测试与验收方法见 [docs/testing.md](docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前确实不提供的能力在 §9 如实列出。
+> 本文档对应 **v0.4.6**（DSH 0.2.1-rc.2 基线）。功能描述取自本仓库源码；测试与验收方法见 [docs/testing.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/testing.md)。Git 安装 Bundle 的更新与 `requiresConfirmation` 项的逐项确认链路均已实现并通过隔离验收；当前不提供的能力在 §9 列出。既有实测记录不代表每次发布都重新执行全部验收。
 
-![扩展管理器 Plugins 页面](docs/screenshots/plugins.png)
+**0.4.6 开发工具加固**：截图与弹窗布局工具分别使用独立的临时 Profile 命名空间，清理前校验路径和进程归属；布局工具通过自身 Profile 的 `DevToolsActivePort` 验证 CDP 端点与页面目标；外部等待与删除重试设有期限，退出清理可重复调用。本补丁不改变插件运行时功能。完整变更与限制见 [Release 说明](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6)。
+
+**工具栏 V2**：搜索、筛选、刷新列表、检查更新与条件显示的更新全部（N）按真实内容宽度决定单行；按钮自然宽度、统一 34px 高度、文字不换行；N 来自现有只读批量更新计划，完整检查成功前不显示。
+
+**V6 详情页优化（0.3.0）**：Plugins/Skills 详情默认只保留基本信息、GitHub 仓库、安装位置、更新情况和默认折叠的高级信息；新增只读仓库解析（package.json/git/GitHub SSH/Monorepo 子目录，冲突不猜测）；其余 `npm test` 131 项、布局与真实 UI 验收见下文。
+
+**V5 基础能力**：三项主统计（已安装/可更新/异常，详情可展开）；单行工具栏 + 折叠筛选面板；更紧凑三行卡片；统一 UpdateCoordinator（任务准入、取消、结构化任务日志、重启任务日志）；Skills 同名副本徽标/候选详情/作用域未验证提示；按 scope/workspace 的库存缓存、搜索/筛选/排序/折叠/滚动位置持久化与 100 行以上按需渲染。这些既有能力均保留在当前发布版本中。
+
+![扩展管理器 Plugins 页面](https://github.com/NewBeeJack/dsh-extension-manager/raw/maintenance/0.4.x/docs/screenshots/plugins.png)
 
 ---
 
@@ -34,7 +44,7 @@
 
 **能做：**
 
-- **Plugins 页**：列出当前 Profile 安装的插件包（Bundle）、它们贡献的 Loader 插件行、运行时加载状态；同时展示其他可读 Profile 与 DSH 安装提供的组件（只读）。
+- **Plugins 页**：列出当前 Profile 安装的第三方插件包（Bundle）、它们贡献的 Loader 插件行、运行时加载状态；其他可读 Profile 的插件仅作只读展示。随 DSH 安装提供的组件由 **Built-in plugins** 页面管理。
 - **Skills 页**：列出物理技能副本（清单 A）与运行时可见技能（清单 B），计算同名覆盖关系、未托管根目录、调用策略、来源与本地修改状态。
 - **检查更新**：npm 来源查 registry（按配置的 registry 顺序、私有源不回退公共源）、Git 来源用 `git ls-remote` 比较 commit、Skills 用 GitHub trees API / `~/.agents/.skill-lock.json` 比较目录 tree；npm 候选版本会按 app-boot 语义校验 `engines.dsh` / `@deepseek-ai/dsh*` peer 依赖与当前 DSH 版本的兼容性。
 - **安全更新**：可自动完成的项支持批量更新；需要确认的项（本地修改/无法比较、仅预发布、兼容性未知、Git 安装）必须逐项确认；执行前备份安装目录与 Profile 清单文件，失败自动回滚；安装后读回 `listBundles()`/锁文件校验结果，而不是相信退出码。
@@ -61,12 +71,14 @@
 
 ## 3. 安装与卸载
 
+普通使用无需构建源码，可直接执行 §3.3 的 npm 安装命令；也可从 [GitHub Release](https://github.com/NewBeeJack/dsh-extension-manager/releases/tag/v0.4.6) 下载 `dsh-extension-manager-0.4.6.tgz` 与 `SHA256SUMS`。下载后用 `sha256sum -c SHA256SUMS` 校验；PowerShell 可运行 `Get-FileHash -Algorithm SHA256 <安装包路径>` 并与 `SHA256SUMS` 比对。
+
 ### 3.1 构建
 
-项目根目录下：
+开发者从源码构建时，使用 `v0.4.6` 标签获取发布源码，或使用 `maintenance/0.4.x` 分支获取后续维护代码。在项目根目录下执行：
 
 ```bash
-npm install            # 安装开发依赖（esbuild / typescript / DSH 0.2.1-rc.2 类型包等）
+npm ci                 # 按锁文件安装开发依赖（esbuild / typescript / DSH 类型包等）
 node scripts/build.mjs # 生成 lib/index.js（Host，ESM 打包）与 lib/client.js（Web client bundle）
 # 或：npm run build；类型检查：npm run typecheck；两者合一：npm run verify
 ```
@@ -76,10 +88,10 @@ Host 半被打包成自包含 ESM（`yaml`、`semver`、`undici` 等 CJS 依赖�
 ### 3.2 打包
 
 ```bash
-npm pack     # 产出 dsh-extension-manager-0.1.1.tgz
+npm pack     # 文件名取自 package.json 当前版本；0.4.6 对应 dsh-extension-manager-0.4.6.tgz
 ```
 
-标准安装包：运行 `npm pack` 生成 `dsh-extension-manager-0.1.1.tgz`；`package.json` 的 `files` 字段声明了 `lib`、`cordis.patch.yml`、`README.md`、`README.zh.md`、`LICENSE`、`docs/architecture.md`、`docs/dialog-layout.md`。仓库已包含 MIT `LICENSE`（完整许可文本）。
+标准安装包：先完成构建，再运行 `npm pack`。`package.json` 的 `files` 字段声明包含 `lib`、`cordis.patch.yml`、两份 README、`LICENSE` 与指定文档；开发脚本不随 npm 包分发。仓库已包含 MIT `LICENSE`（完整许可文本）。
 
 ### 3.3 安装到 Profile
 
@@ -87,11 +99,11 @@ npm pack     # 产出 dsh-extension-manager-0.1.1.tgz
 
 ```bash
 # 方式 A（推荐）：从 npm Registry 按名称安装
-dsh plugin --profile web add dsh-extension-manager
-# 锁定版本：dsh plugin --profile web add dsh-extension-manager@0.1.1
+dsh plugin --profile web add dsh-extension-manager@0.4.6
+# 如需安装配置的 registry 上的 latest 版本，可省略 @0.4.6
 
 # 方式 B：从打包产物安装
-dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.1.1.tgz"
+dsh plugin --profile web add "<绝对路径>/dsh-extension-manager-0.4.6.tgz"
 
 # 方式 C：开发调试用 link 安装
 dsh plugin --profile web add "link:<项目绝对路径>"
@@ -139,15 +151,15 @@ dsh plugin --profile web remove dsh-extension-manager
 
 页面顶部是标题与简介；下方是 **Plugins / Skills 胶囊切换**（默认 Plugins；两页的搜索、筛选、排序、分组折叠状态互相独立并保留）、统计栏与工具栏。
 
-### 5.1 统计栏（各 5 项，口径来自 Host 聚合）
+### 5.1 统计栏（三项主统计，口径来自 Host 聚合）
+
+两页均显示“已安装 / 可更新 / 异常”三项主统计；低频指标放在提示与可展开的“统计详情”中。
 
 Plugins：
 
 | 指标 | 口径 | 可点击筛选 |
 | --- | --- | --- |
 | 已安装 | 当前 Profile 声明的第三方插件包（含未启用）；tooltip 另给其他 Profile 数量 | 否 |
-| 已启用 | 配置中已选中、随 DSH 加载的插件包 | 是（已启用） |
-| 运行中 | 运行时已加载的插件行 / 插件行总数（tooltip 给出失败数） | 是（运行中） |
 | 可更新 | 检查后存在可用且与当前 DSH 兼容的更新 | 是（可更新） |
 | 异常 | 加载失败、安装缺失、检查失败或带错误诊断的记录 | 是（异常） |
 
@@ -155,13 +167,11 @@ Skills：
 
 | 指标 | 口径 |
 | --- | --- |
-| 物理副本 | 扫描到的技能目录/文件总数（tooltip 给出未托管数量） |
-| 运行时生效 | 运行时技能目录中可见的技能数；物理副本中生效的数量在 tooltip 中 |
-| 已覆盖 | 被同名、更高优先级副本覆盖而未生效的物理副本 |
+| 已安装 | 当前管理范围内的物理技能副本，含被覆盖与未托管副本；虚拟 Provider 技能不计入 |
 | 可更新 | 检查后存在可用且兼容的远程更新 |
 | 异常 | 解析失败、检查失败或带错误诊断的技能 |
 
-其中的按钮类指标点击后会切换对应状态筛选（再次点击取消）。
+“统计详情”补充显示 Plugins 已启用数、运行中插件行、加载失败数与其他 Profile 数量，以及 Skills 运行时可见数、当前作用域生效数、被覆盖数与未托管数。其中“可更新 / 异常”主统计点击后会切换对应状态筛选（再次点击取消）。
 
 ### 5.2 工具栏
 
@@ -303,7 +313,7 @@ Skills：
 - 硬排除（不进 entries，直接给 `excludedReason`）：管理器自身、DSH 保护/随装组件、不可更新/不可卸载、本地 link/路径/tarball 来源、检查结果不是候选/不兼容、缺少目标版本或 Git commit。
 - 别名安装（`npm:` spec）不在计划阶段排除，而是在 **PREFLIGHT 阶段拒绝**（“该插件以别名方式安装，不支持自动更新”），此时未产生任何修改，事务以 blocked/失败记录后清理。
 - **npm 来源**：满足全部预检即可批量自动更新。预检包括：检查缓存仍有效（目标版本存在、非降级）、与当前 DSH 兼容、安装目录存在且可写（拒绝符号链接目录）、Profile 可写、磁盘空间足够（≥ 2× 目录大小 + 64 MiB）、重新确认 registry 中存在目标版本、与 **当前版本的 registry tarball** 逐文件 SHA-256 比较识别本地修改（该比较结果按 60 秒缓存，避免重复下载）。
-- **Git 来源（已实现，单项确认更新）**：计划给 `availableCommit` 时进入 entries，但标记 `eligible: false` + `requiresConfirmation: true`（批量默认跳过），`targetVersion` 为短 commit，risk 说明“按远端 commit 重新安装、安装脚本副作用无法完全回滚、更新前备份”。执行时 `INSTALL` 用 `origin#<commit>` 构造 git spec 先卸载再安装；`DOWNLOAD/STAGE` 不预下载/不解包；`VALIDATE` 读回 `listBundles()` 并核对 `pnpm-lock.yaml` 中的 commit 与目标一致；`BACKUP/RECOVERY` 与 npm 相同。Git 没有发布基线，预检把本地修改视为 `unknown`，因此 **执行该项需要 `overwriteLocalModifications: true`**（页面上即“确认覆盖”）。真实仓库的更新成功与失败回滚已在隔离环境验收通过（见 [docs/testing.md](docs/testing.md)）。
+- **Git 来源（已实现，单项确认更新）**：计划给 `availableCommit` 时进入 entries，但标记 `eligible: false` + `requiresConfirmation: true`（批量默认跳过），`targetVersion` 为短 commit，risk 说明“按远端 commit 重新安装、安装脚本副作用无法完全回滚、更新前备份”。执行时 `INSTALL` 用 `origin#<commit>` 构造 git spec 先卸载再安装；`DOWNLOAD/STAGE` 不预下载/不解包；`VALIDATE` 读回 `listBundles()` 并核对 `pnpm-lock.yaml` 中的 commit 与目标一致；`BACKUP/RECOVERY` 与 npm 相同。Git 没有发布基线，预检把本地修改视为 `unknown`，因此 **执行该项需要 `overwriteLocalModifications: true`**（页面上即“确认覆盖”）。真实仓库的更新成功与失败回滚已在隔离环境验收通过（见 [docs/testing.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/testing.md)）。
 - 需要用户确认的项（npm 本地被修改/无法比较、仅预发布、兼容性未知、Git 安装、技能本地修改）统一 `eligible: false` + `requiresConfirmation: true`；**单项计划**可在 `confirmed: true` 后执行（PREFLIGHT 复核），**批量**只执行 `eligible` 项，批量带 `overwriteLocalModifications: true` 时才放行确认项。
 - 备份：安装目录 + Profile 的 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`cordis.patch.yml`、`compatibility.json` 快照，写入 `backups/<txid>/` 并在破坏性操作前重新校验哈希；失败时从备份恢复（Git 来源的回滚只覆盖安装目录/清单，无法回滚安装脚本对外部环境的副作用）。
 - 安装：先 `pluginManager.removeBundle(name)`，再 `pluginManager.installBundle(<spec>, { saveExact: true, enabled: 原启用状态, registry })`；npm 用 `${name}@${target}`，Git 用 `origin#<commit>` 形式的 spec。没有 HMR 的环境若无法卸载运行中的包，会改为直接覆盖安装并如实标记需要重启。
@@ -421,7 +431,7 @@ npm test             # 等价于 node --test（package.json 的 test 脚本）
 node --test          # 全部测试（node 原生 TS 运行，无需构建）
 ```
 
-当前测试（`npm test`：98 个用例全部通过，约 1.5s）：
+当前测试（`npm test`：131 个用例全部通过，约 1.5s）：
 
 | 文件 | 覆盖 |
 | --- | --- |
@@ -440,7 +450,7 @@ node scripts/test-env/stop.mjs                     # 只结束记录的 pid 树
 
 `scripts/test-env/` 内的场景脚本包括 `scenario-batch.mjs`（并发 + 批量）、`scenario-git-plugin.mjs`（Git 更新与失败回滚）、`scenario-skill-update.mjs`（技能更新）、`scenario-plugin-localmod.mjs`（本地修改/覆盖）、`scenario-interrupt.mjs`（更新中断后重启恢复），以及夹具准备脚本。默认夹具根目录为 `../_test/env1`，可用 `node scripts/test-env/setup.mjs <root>` 指定其他目录；`out/` 下记录 `server.log`、`server.pid`、`url.json`（带鉴权 token 的本机 URL）。
 
-验收方法与结果摘要见 [docs/testing.md](docs/testing.md)。页面/API 联调与截图使用 `scripts/dev/shot.mjs` + `scripts/dev/mint-cookie.mjs`（自建 CDP 客户端，需要已 mint 的浏览器 cookie；本地 cookie 文件已被 `.gitignore` 忽略），截图输出在 `scripts/dev/out*`，仅用于开发验收，不随包发布。
+验收方法与结果摘要见 [docs/testing.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/testing.md)。页面/API 联调与截图使用 `scripts/dev/shot.mjs` + `scripts/dev/mint-cookie.mjs`（自建 CDP 客户端，需要已 mint 的浏览器 cookie；本地 cookie 文件已被 `.gitignore` 忽略），截图输出在 `scripts/dev/out*`，仅用于开发验收，不随包发布。
 
 开发时让正在运行的 Host 重载已重建的 `lib/index.js`：
 
@@ -461,13 +471,13 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 - 页面只通过 `src/client/api.ts` 的 transport 访问 Host；`?emFixture=1` 时切换到 `fixture.ts` 的本地预览 transport，**默认路径不会加载任何假数据**。
 - 组件不使用第三方 UI 依赖，只用 DSH 注入的 `@deepseek-ai/dsh-client-ui-primitives` / `ui-slots`；样式使用 `--dsw-*` 主题 token，支持明暗主题与 `prefers-reduced-motion`。
 - 构建后 `lib/client.js` 会被运行中的 DSH Web 页面热替换；Host 半需要重启或按 §8.3 的 reload 脚本触发重组合。
-- 弹窗布局统一遵循共享契约：`.em-dialogShell`（更新确认/诊断，套在 DSH Modal chrome 上）与 `.em-detailDialog`（详情，headless 自绘）都保证标题到上边缘约 24px、操作按钮到下边缘 24px、Body 单滚动、Footer 固定可见。规范、根因与量化验收见 [docs/dialog-layout.md](docs/dialog-layout.md)，自动化回归：`node scripts/dev/verify-dialog-layout.mjs --url <token-url> --cookie <cookie.json>`。
+- 弹窗布局统一遵循共享契约：`.em-dialogShell`（更新确认/诊断，套在 DSH Modal chrome 上）与 `.em-detailDialog`（详情，headless 自绘）都保证标题到上边缘约 24px、操作按钮到下边缘 24px、Body 单滚动、Footer 固定可见。规范、根因与量化验收见 [docs/dialog-layout.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/dialog-layout.md)，自动化回归：`node scripts/dev/verify-dialog-layout.mjs --url <token-url> --cookie <cookie.json>`。
 
 ### 8.6 管理器自身更新策略
 
-- 环境面板/诊断显示 `selfUpdateSupported: false`，原因：当前为本地构建安装，未配置可信上游发布源；管理器自身更新需要重新打包安装。
-- 更新计划中 `dsh-extension-manager` 永远被排除（“管理器自身不参与自动更新”），检查更新也不会把它标为可更新（它当前是 `file:` 本地 tarball 安装，没有可核对的上游发布源）。
-- 升级管理器：`npm install && node scripts/build.mjs && npm pack`，然后按 §3.3 重新安装（`dsh plugin --profile web add <tgz>`；link 安装则重新构建并按 §8.3 触发重载），最后重启 DSH。
+- 环境面板/诊断的 `selfUpdateSupported` 仍为 `false`；发布到 npm 并不启用页面内自更新。现有诊断中关于“本地构建安装、未配置上游”的静态文案可能仍会出现，不代表 npm 包尚未发布。
+- `dsh-extension-manager` 在自身检查与更新计划中被排除，与 npm、tarball 或 link 安装方式无关。
+- 升级到 0.4.6：对同一 Profile 执行 `dsh plugin --profile web add dsh-extension-manager@0.4.6`，然后重启 DSH。离线安装可按 §3.3 使用 Release 的 tarball；源码/link 安装则重新构建，并按 §8.3 触发重载。
 
 ## 9. 已知限制
 
@@ -485,7 +495,7 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 10. pnpm 构建脚本授权沿用 Profile 的设置，管理器不绕过 pnpm 的构建授权；因此失败的安装会回滚并提示原因。
 11. 当前版本**不提供“取消正在进行的更新”按钮**（避免中断恢复歧义）；更新失败后可重试。
 12. 官方 GitHub Release changelog 展示未实现；详情提供版本、来源与提交/tree 信息。
-13. 管理器自身不支持页面内自更新（本地构建安装，无发布源）；也从不重启 DSH。
+13. 管理器自身不支持页面内自更新，即使从 npm 安装也需按 §8.6 手动升级；管理器不会重启 DSH。
 14. 备份保留最近 20 个事务（未完成事务的备份受保护），`staging/` 清理 24 小时前的残留。
 15. 更新历史只记录 update / batch-update / skill-update；GitHub 来源关联（目前仅 Host API）不写历史。
 16. 验收环境为 Windows；代码包含 POSIX 分支但未在 macOS/Linux 实测。
@@ -515,9 +525,24 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 
 ## 11. 实测记录
 
+以下为已有验收记录，供复现参考；具体数值和外部包版本属于当时环境，不代表本次文档修改重新执行了这些测试。
+
+**0.4.6 浏览器工具回归与验证范围**
+
+在源码仓库中运行（独立于 `npm test`）：
+
+```bash
+npm run test:lifecycle
+node scripts/dev/test-layout-guard.mjs
+```
+
+- 生命周期套件包含 18 个用例，仅支持 Windows，且需安装 Edge 或 Chrome；可用 `npm run test:lifecycle -- --browser <浏览器路径>` 指定浏览器。其他平台会明确跳过，不能仅凭退出码 0 认定通过。
+- 布局守卫套件包含 55 个用例，覆盖端点归属、超时、身份拒绝及启动参数等场景。两套回归均不能替代完整的真实浏览器隔离验证。
+- 真实 Edge 隔离专项验证为历史记录：Edge `155.0.4283.62`、单一 Windows 账户，0.4.6 发布时未重跑该专项。PID 复用窗口尚未完全消除，提权/去提权重启场景未实测。
+
 **构建与测试（可重复）**
 
-- `npm test`（= `node --test`）：98 个用例全部通过（约 1.5s）。
+- `npm test`（= `node --test`）：131 个用例全部通过（约 1.5s）。
 - `npx tsc --noEmit`：0 错误。
 - `node scripts/build.mjs`：成功生成 `lib/index.js`（Host ESM bundle）与 `lib/client.js`（Web client bundle）；`import('./lib/index.js')` 可正常加载（`apply` 为函数）。
 - 真实 registry 抽样：`dsh-context` 当前 `0.73.0` → `up-to-date`；`0.60.0` → `update-available`（与 DSH `0.2.1-rc.2` 兼容）；`@michengai/dsh-skills-manager 1.2.5` → `up-to-date`；`dsh-better-sidebar`、`@eddyskywalker/dsh-chatgpt-subscription` 旧版本 → `update-available`；伪造旧 DSH 版本时同一批包 → `incompatible-update` 并列出未满足的 `engines.dsh`/peer 依赖。
@@ -535,7 +560,7 @@ node scripts/dev/reload-host.mjs [profile] [waitMs]
 - 多 Profile：其他 Profile 以只读清单展示，`alsoInProfiles` 合并同名 Bundle。
 - 具体数值随 Profile 与上游版本变化，不作为固定承诺。
 
-**隔离环境验收（摘要，详见 [docs/testing.md](docs/testing.md)）**
+**隔离环境验收（摘要，详见 [docs/testing.md](https://github.com/NewBeeJack/dsh-extension-manager/blob/maintenance/0.4.x/docs/testing.md)）**
 
 - 反向验收 20 项全部通过：清单完整性、多 Profile、同名 Skills、Junction 去重、真实来源识别、兼容性、npm/Git/Skills 更新、本地修改确认、失败回滚、Windows 文件占用、中断恢复、并发/批量 409、UI 真实性。
 - `node scripts/test-env/run-all.mjs` 的 7 个场景全部通过；`node scripts/dev/verify-dialog-layout.mjs` 的弹窗布局检查 19/19 通过。
