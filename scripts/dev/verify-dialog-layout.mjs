@@ -16,6 +16,29 @@
  * dark-scheme pass and writes screenshots + a JSON report. Exit code is
  * non-zero when any assertion fails.
  *
+ * Lifecycle contract (see layout-lifecycle.mjs):
+ *   - the temporary profile lives in its own namespace (`dsh-em-layout-`) and is
+ *     created before the browser starts, so a failed launch is still cleaned up;
+ *   - the profile is launched with the isolation switches that keep a temporary
+ *     browser from adopting the Windows/Microsoft account or syncing;
+ *   - every external wait (spawn, devtools port, websocket open, each CDP
+ *     command) has a deadline, and a timeout really cancels the request;
+ *   - the browser chooses its own devtools port and publishes it in
+ *     `DevToolsActivePort` inside this run's profile, so the endpoint can be
+ *     *proven* to be the browser this script started - a random port could be
+ *     answered by someone else's browser, which this script would then drive
+ *     and close;
+ *   - shutdown closes the browser over the browser-level CDP socket, then
+ *     reclaims every process that owns this exact profile directory, and only
+ *     then deletes it - gated by the same path checks shot.mjs uses, with
+ *     bounded retries and a visible report;
+ *   - SIGINT/SIGTERM/uncaughtException still clean up, the cleanup is
+ *     idempotent so a signal cannot re-enter it, and the `exit` fallback obeys
+ *     the same rules synchronously.
+ *
+ * The launch URL usually carries a single-use token. It is never written to the
+ * report and never printed: logs and errors use `describeUrl`/`redactUrl`.
+ *
  * Usage:
  *   node scripts/dev/verify-dialog-layout.mjs \
  *     --url "http://127.0.0.1:3080/?token=..." \
@@ -24,22 +47,56 @@
  *   --sizes "1920x1080,1536x864,1366x768,1093x614,911x512,683x384"
  *   --cookie <cookie.json>   optional; a token URL is enough
  *   --skip-update            skip update-dialog flows (diagnostics/details only)
+ *   --chrome <path>          browser executable (default: Google Chrome)
+ *   --sweep-stale-hours <n>  sweep this tool's stale profiles at startup (default 24, 0 = off)
+ *   --keep-profile           keep the temporary profile for inspection (debug)
  */
-import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  createProfileDir,
+  sweepStaleProfiles,
+} from './browser-lifecycle.mjs'
+import {
+  LAYOUT_PROFILE_PREFIX,
+  TIMEOUTS,
+  buildLayoutLaunchArgs,
+  buildReportPayload,
+  connectVerifiedBrowser,
+  createLifecycleController,
+  createShutdownRunner,
+  describeShutdown,
+  describeUrl,
+  sanitizeText,
+  startBrowser,
+  syncReapProfile,
+  waitForCondition,
+} from './layout-lifecycle.mjs'
 
 function arg(name, fallback) {
   const at = process.argv.indexOf(`--${name}`)
   return at === -1 ? fallback : process.argv[at + 1]
 }
+function numberArg(name, fallback) {
+  const raw = arg(name)
+  if (raw === undefined) return fallback
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : fallback
+}
 const launchUrl = arg('url')
 if (launchUrl === undefined || launchUrl === '') {
-  console.error('usage: node verify-dialog-layout.mjs --url <token-url> [--out dir] [--sizes ...] [--cookie file] [--skip-update]')
+  console.error('usage: node verify-dialog-layout.mjs --url <token-url> [--out dir] [--sizes ...] [--cookie file] [--skip-update] [--chrome path] [--sweep-stale-hours n] [--keep-profile]')
   process.exit(2)
 }
-const origin = new URL(launchUrl).origin
+let origin
+try {
+  origin = new URL(launchUrl).origin
+} catch {
+  // The raw value is not echoed: it may be a truncated token URL.
+  console.error('--url is not a valid URL')
+  process.exit(2)
+}
 const outDir = arg('out', join(tmpdir(), 'dsh-em-dialog-layout'))
 const sizes = arg('sizes', '1920x1080,1536x864,1366x768,1093x614,911x512,683x384')
   .split(',')
@@ -47,15 +104,99 @@ const sizes = arg('sizes', '1920x1080,1536x864,1366x768,1093x614,911x512,683x384
   .filter(Boolean)
   .map((text) => { const [w, h] = text.split('x').map(Number); return { width: w, height: h, label: text } })
 const skipUpdate = process.argv.includes('--skip-update')
-mkdirSync(outDir, { recursive: true })
+const keepProfile = process.argv.includes('--keep-profile')
+const sweepHours = numberArg('sweep-stale-hours', TIMEOUTS.sweepOlderThanHours)
 const chromePath = arg('chrome', 'C:/Program Files/Google/Chrome/Application/chrome.exe')
-const port = 20000 + Math.floor(Math.random() * 20000)
-const profileDir = join(tmpdir(), `dsh-em-layout-${String(Date.now())}-${String(Math.floor(Math.random() * 10000))}`)
-mkdirSync(profileDir, { recursive: true })
+// The browser picks its own port and publishes it in `DevToolsActivePort`
+// inside our profile directory. A random port would let a foreign CDP listener
+// answer the probe, and this script would then drive - and later close - a
+// browser it never started.
+mkdirSync(outDir, { recursive: true })
+
+// Recover directories left by an interrupted earlier run *before* adding
+// another one. Only this tool's namespace is considered, and if the process
+// list cannot be read every candidate is skipped rather than assumed free.
+const profileRoot = tmpdir()
+if (sweepHours > 0) {
+  const swept = sweepStaleProfiles({ root: profileRoot, olderThanHours: sweepHours, prefix: LAYOUT_PROFILE_PREFIX })
+  if (swept.swept.length > 0) {
+    console.log(`[layout] swept ${String(swept.swept.length)} stale profile director${swept.swept.length === 1 ? 'y' : 'ies'}`)
+  }
+  for (const entry of swept.swept) {
+    if (entry.removed !== true) console.warn(`[layout] could not remove ${entry.dir}: ${String(entry.lastError?.code)} ${String(entry.lastError?.message)}`)
+  }
+  if (swept.error !== undefined) console.warn(`[layout] stale sweep skipped: ${swept.error}`)
+}
+
+const profileDir = createProfileDir(profileRoot, { prefix: LAYOUT_PROFILE_PREFIX })
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 const failures = []
 const results = []
+
+/**
+ * One shutdown per process. The `finally` block and every signal handler call
+ * this, and the second caller receives the same promise - the cleanup can never
+ * re-enter itself.
+ */
+const session = {
+  profileDir,
+  profileRoot,
+  browserPid: null,
+  keepProfile,
+  cdp: null,
+  browserCdp: null,
+  reason: '',
+  requestBrowserClose: null,
+}
+let shutdownFinished = false
+
+function printCleanup(report) {
+  console.log(`[layout] ${describeShutdown(report)}`)
+  const directory = report?.directory
+  if (directory !== null && directory !== undefined && directory.removed !== true && directory.kept !== true) {
+    console.warn('[layout] profile directory kept at', profileDir)
+    if (directory.blocked !== undefined) console.warn('[layout]   reason:', directory.blocked)
+    if (directory.rejected !== undefined) console.warn('[layout]   reason:', directory.rejected)
+    if (directory.lastError !== undefined) console.warn('[layout]   last error:', directory.lastError.code, directory.lastError.message)
+    if (report.lingering.length > 0) console.warn('[layout]   still owned by pid:', report.lingering.join(', '))
+  }
+}
+
+const shutdownRunner = createShutdownRunner(session, {}, (report) => {
+  printCleanup(report)
+  shutdownFinished = true
+})
+
+function shutdown(reason) {
+  return shutdownRunner.run(reason).catch((error) => {
+    console.error('[layout] cleanup failed:', error?.message ?? error)
+    return null
+  })
+}
+
+/**
+ * Last chance on `exit`, which cannot await.
+ *
+ * `syncReapProfile` is the synchronous twin of the normal shutdown and applies
+ * the same rules: no delete when process ownership cannot be read, no delete
+ * while an owner is left, no delete without the path gate, and no delete at all
+ * under `--keep-profile`.
+ */
+function exitTimeReap() {
+  printCleanup(syncReapProfile(session, { prefix: LAYOUT_PROFILE_PREFIX }))
+}
+
+const lifecycle = createLifecycleController({
+  shutdown: reason => shutdown(reason),
+  syncReap: exitTimeReap,
+  isComplete: () => shutdownFinished,
+  log: {
+    info: message => console.log(`[layout] ${message}`),
+    error: message => console.error(`[layout] ${message}`),
+  },
+})
+lifecycle.install()
 
 /** Assert one measured dialog and record the result. */
 function assertGeometry(label, value) {
@@ -78,60 +219,39 @@ function assertGeometry(label, value) {
   return passed
 }
 
-let chrome
-let ws
 try {
-  chrome = spawn(chromePath, [
-    '--headless=new',
-    `--remote-debugging-port=${String(port)}`,
-    `--user-data-dir=${profileDir}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-gpu',
-    '--hide-scrollbars',
-    '--window-size=1920,1080',
-    'about:blank',
-  ], { stdio: 'ignore' })
+  const launch = startBrowser({
+    executable: chromePath,
+    args: buildLayoutLaunchArgs(profileDir),
+  })
+  session.browserPid = launch.pid
+  if ((await launch.ready) !== true) {
+    const detail = launch.error === null
+      ? 'the process exited before it signalled spawn'
+      : `${String(launch.error.code ?? 'ERROR')} ${String(launch.error.message)}`
+    throw new Error(`could not start ${chromePath}: ${detail}`)
+  }
 
-  const deadline = Date.now() + 25_000
-  let version
-  let page
-  while (Date.now() < deadline) {
-    try {
-      version = await (await fetch(`http://127.0.0.1:${String(port)}/json/version`)).json()
-      const pages = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
-      page = pages.find(item => item.type === 'page')
-      if (version !== undefined && page !== undefined) break
-    } catch {}
-    await sleep(200)
-  }
-  if (page === undefined) throw new Error('Chrome DevTools did not become reachable')
-  ws = new WebSocket(page.webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => {
-    ws.addEventListener('open', resolve, { once: true })
-    ws.addEventListener('error', reject, { once: true })
+  // Before anything is navigated or closed: prove the devtools endpoint belongs
+  // to the browser started above. The port comes from `DevToolsActivePort` in
+  // our own profile directory, and the page target must be known to the
+  // browser-level endpoint we connected to. On failure this throws before a
+  // single browser-side operation, and `session.cdp` stays null.
+  const connected = await connectVerifiedBrowser({
+    profileDir,
+    timeoutMs: TIMEOUTS.launchBudgetMs,
+    sleep,
+    isBrowserExited: () => launch.exited === true,
   })
-  let nextId = 0
-  const pending = new Map()
-  ws.addEventListener('message', (event) => {
-    const message = JSON.parse(event.data)
-    if (message.id === undefined) return
-    const entry = pending.get(message.id)
-    if (entry === undefined) return
-    pending.delete(message.id)
-    if (message.error !== undefined) entry.reject(new Error(JSON.stringify(message.error)))
-    else entry.resolve(message.result)
-  })
-  const send = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = ++nextId
-    pending.set(id, { resolve, reject })
-    ws.send(JSON.stringify({ id, method, params }))
-  })
-  const evaluate = async (expression) => {
-    const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-    if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text)
-    return result.result?.value
-  }
+  const cdp = connected.pageCdp
+  session.cdp = cdp
+  session.browserCdp = connected.browserCdp
+  console.log(`[layout] browser endpoint verified on port ${String(connected.port)} (target ${connected.pageId.slice(0, 12)}…)`)
+  // `Browser.close` is a browser-domain command, so it must not travel over the
+  // page-level socket.
+  session.requestBrowserClose = () => connected.browserCdp.send('Browser.close', {}, { timeoutMs: TIMEOUTS.gracefulCloseCommandMs })
+  const send = (method, params = {}) => cdp.send(method, params)
+  const evaluate = (expression, options) => cdp.evaluate(expression, options)
   const screenshot = async (name) => {
     const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(join(outDir, `${name}.png`), Buffer.from(shot.data, 'base64'))
@@ -155,26 +275,19 @@ try {
     return url
   }
 
-  /** Poll one browser-side predicate until it is truthy. */
-  const waitFor = async (expression, timeoutMs = 15000) => {
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      try {
-        if (await evaluate(expression) === true) return true
-      } catch {}
-      await sleep(300)
-    }
-    return false
-  }
+  /** Poll one browser-side predicate until it is truthy (deadline-bounded). */
+  const waitFor = (expression, timeoutMs = 15000) => waitForCondition(evaluate, expression, { timeoutMs, sleep })
 
   /** Open the Extension Manager settings section from a fresh page load. */
   const openManager = async (url) => {
     const target = navigationUrl(url)
     await evaluate(`location.href = ${JSON.stringify(target)}`)
     await sleep(1500)
-    try { await evaluate('location.reload()') } catch { /* the execution context is replaced by the reload */ }
+    // A reload destroys the execution context, so this call may never answer.
+    // Keep its own short budget instead of the generic command timeout.
+    try { await evaluate('location.reload()', { timeoutMs: 3000 }) } catch { /* the execution context is replaced by the reload */ }
     await sleep(2200)
-    console.log('[layout] navigated to', target, '→', await evaluate('location.href'))
+    console.log('[layout] navigated to', describeUrl(target), '→', describeUrl(await evaluate('location.href')))
     const accountReady = await waitFor(`(()=>Boolean(document.querySelector('[aria-label="Account menu"]')||[...document.querySelectorAll('button')].find(b=>/account|账户|菜单/i.test(b.getAttribute('aria-label')||''))))()`, 20000)
     if (!accountReady) {
       console.log('[layout] wait: account menu not found; debug:', JSON.stringify({
@@ -469,17 +582,18 @@ try {
   }
   await setDark(false)
 
-  writeFileSync(join(outDir, 'report.json'), JSON.stringify({ at: new Date().toISOString(), url: launchUrl, results, failures }, undefined, 2), 'utf8')
+  // The report deliberately stores origin+path, never the launch URL: a launch
+  // token in report.json would outlive the run in the working tree.
+  writeFileSync(join(outDir, 'report.json'), JSON.stringify(buildReportPayload({ launchUrl, results, failures }), undefined, 2), 'utf8')
   console.log(`[layout] report: ${join(outDir, 'report.json')}`)
   console.log(`[layout] ${String(results.filter(item => item.passed).length)}/${String(results.length)} checks passed`)
   process.exitCode = failures.length === 0 ? 0 : 1
 } catch (error) {
-  writeFileSync(join(outDir, 'report.json'), JSON.stringify({ at: new Date().toISOString(), error: String(error), results, failures }, undefined, 2), 'utf8')
-  console.error('[layout] run failed:', error)
+  writeFileSync(join(outDir, 'report.json'), JSON.stringify(buildReportPayload({ launchUrl, results, failures, error: String(error?.stack ?? error) }), undefined, 2), 'utf8')
+  console.error('[layout] run failed:', sanitizeText(String(error?.message ?? error)))
   process.exitCode = 1
 } finally {
-  try { ws?.close() } catch {}
-  chrome?.kill()
-  await sleep(300)
-  try { rmSync(profileDir, { recursive: true, force: true }) } catch {}
+  // Closes the browser, reclaims every process owning this profile, then
+  // deletes the directory - and reports what it could not do.
+  await shutdown('done')
 }
