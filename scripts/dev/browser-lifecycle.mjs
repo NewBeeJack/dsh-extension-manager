@@ -19,6 +19,12 @@
  * Nothing here ever terminates processes by image name. Every termination is
  * addressed to one explicitly identified PID, and (when the caller has one)
  * guarded by the creation timestamp of the process that was inspected.
+ *
+ * Every function that decides which directories belong to "this tool" takes an
+ * optional `prefix` (see `profileNamePattern`). The default stays
+ * `dsh-em-chrome-`, so shot.mjs and its suite are unaffected; a second tool
+ * passes its own namespace and can then neither sweep nor reclaim the first
+ * tool's directories.
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -35,7 +41,28 @@ import { basename, dirname, join, resolve } from 'node:path'
 
 /** Directory names owned by this tool. Nothing else is ever touched. */
 export const PROFILE_PREFIX = 'dsh-em-chrome-'
-const PROFILE_NAME = /^dsh-em-chrome-\d{13}-\d{1,4}$/
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Builds the directory-name pattern for one tool's profile namespace.
+ *
+ * A prefix must carry its own namespace segment (`dsh-em-<name>-`). The bare
+ * `dsh-em-` prefix is rejected on purpose: accepting it would make one tool's
+ * sweep responsible for another tool's directories, which is exactly the
+ * cross-cleanup the audited scripts must not do.
+ */
+export function profileNamePattern(prefix = PROFILE_PREFIX) {
+  const value = String(prefix)
+  if (!/^dsh-em-[a-z][a-z0-9]*-$/.test(value)) {
+    const error = new Error(`invalid profile prefix: ${JSON.stringify(value)}`)
+    error.code = 'EPREFIX'
+    throw error
+  }
+  return new RegExp(`^${escapeRegExp(value)}\\d{13}-\\d{1,4}$`)
+}
 
 /** Image names that count as "the browser" when attributing profile owners. */
 export const BROWSER_IMAGES = ['msedge.exe', 'chrome.exe']
@@ -50,8 +77,10 @@ const PS_CREATED = "@{n='created';e={ if ($_.CreationDate) { $_.CreationDate.ToS
  * The name embeds the creation epoch (ms) plus a random suffix, so a leaked
  * directory can always be dated and attributed to a single run.
  */
-export function createProfileDir(root = tmpdir()) {
-  const dir = join(root, `${PROFILE_PREFIX}${String(Date.now())}-${String(Math.floor(Math.random() * 10000))}`)
+export function createProfileDir(root = tmpdir(), options = {}) {
+  const prefix = options.prefix ?? PROFILE_PREFIX
+  profileNamePattern(prefix)
+  const dir = join(root, `${prefix}${String(Date.now())}-${String(Math.floor(Math.random() * 10000))}`)
   mkdirSync(dir, { recursive: true })
   return dir
 }
@@ -62,7 +91,8 @@ export function createProfileDir(root = tmpdir()) {
  * gate before any recursive delete: it blocks path traversal, symlink swaps
  * and accidental deletion of unrelated data.
  */
-export function assertSafeProfileDir(dir, root = tmpdir()) {
+export function assertSafeProfileDir(dir, root = tmpdir(), options = {}) {
+  const pattern = profileNamePattern(options.prefix ?? PROFILE_PREFIX)
   const absDir = resolve(dir)
   const absRoot = resolve(root)
   if (!existsSync(absDir)) {
@@ -82,7 +112,7 @@ export function assertSafeProfileDir(dir, root = tmpdir()) {
     error.code = 'EOUTSIDE'
     throw error
   }
-  if (!PROFILE_NAME.test(basename(realDir))) {
+  if (!pattern.test(basename(realDir))) {
     const error = new Error(`profile directory name is not recognised: ${realDir}`)
     error.code = 'ENAMING'
     throw error
@@ -146,7 +176,15 @@ function normalizeForSearch(path) {
  */
 export function commandLineReferencesProfile(commandLine, dir) {
   if (typeof commandLine !== 'string' || commandLine === '') return false
-  const haystack = commandLine.replace(/\\/g, '/').toLowerCase()
+  // Two quoting conventions reach us and both must work:
+  //   node quotes the whole argument  -> "--user-data-dir=C:\Temp\x"
+  //   Chromium quotes the *value*     -> --user-data-dir="C:\Temp Dir\x"
+  // The second form only appears when the path contains a space, which is
+  // exactly the case where a missed match would delete a profile still in use.
+  const haystack = commandLine
+    .replace(/--user-data-dir=(?:"([^"]*)"|'([^']*)')/giu, (match, double, single) => `--user-data-dir=${double ?? single}`)
+    .replace(/\\/g, '/')
+    .toLowerCase()
   const needle = `--user-data-dir=${normalizeForSearch(dir)}`
   const isBoundary = ch => ch === undefined || ch === '"' || ch === "'" || /\s/.test(ch)
   let at = haystack.indexOf(needle)
@@ -267,6 +305,20 @@ export function queryProcessIdentity(pid) {
 }
 
 /**
+ * The one and only place a browser process is killed on Windows. Addressed to a
+ * PID (plus its child tree) - never to an image name.
+ *
+ * Kept as a module-level function so `terminateProcessTree` can accept a stand-in
+ * in tests while the production call stays a single, greppable call site.
+ */
+function taskkillPidTree(pid) {
+  return spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+    windowsHide: true,
+    encoding: 'utf8',
+  })
+}
+
+/**
  * Last-resort termination of a *specific* PID and its children on Windows.
  * `taskkill /T` walks the child tree, so a browser process that relaunched
  * itself and is still inside the same tree is covered. Killing by image name
@@ -277,14 +329,20 @@ export function queryProcessIdentity(pid) {
  *     (this is what a recycled PID looks like);
  *   - expectedCreatedAt: refuse when the live PID's creation timestamp differs.
  * Both close the "inspect, then terminate" window to a small race, not to zero.
+ *
+ * `options.queryIdentity` and `options.taskkill` exist so a suite can prove the
+ * refusal path without ever killing anything: when a guard rejects, the taskkill
+ * stand-in must not be reached at all.
  */
 export function terminateProcessTree(pid, options = {}) {
   if (!isProcessAlive(pid)) return { ok: true, method: 'already-exited', detail: '' }
 
+  const queryIdentity = options.queryIdentity ?? queryProcessIdentity
+  const runTaskkill = options.taskkill ?? taskkillPidTree
   let identityVerified = null
   const needsIdentity = options.expectedCreatedAt !== undefined || options.expectedProfileDir !== undefined
   if (needsIdentity) {
-    const identity = queryProcessIdentity(pid)
+    const identity = queryIdentity(pid)
     if (!identity.ok) {
       // Cannot prove identity: for a PID this tool never started, refuse.
       if (options.requireIdentity === true) {
@@ -316,10 +374,7 @@ export function terminateProcessTree(pid, options = {}) {
     }
   }
 
-  const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-    windowsHide: true,
-    encoding: 'utf8',
-  })
+  const result = runTaskkill(pid)
   const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
   return {
     ok: !isProcessAlive(pid),
@@ -350,7 +405,13 @@ export function reapProfileOwners(dir, options = {}) {
   const report = { ok: true, unknown: false, terminated: [], refused: [], remaining: [], attempts: 0, queries: 0, lastError: null, rejected: null }
 
   // Safety gate: only a directory this tool would create is ever "owned".
-  if (!PROFILE_NAME.test(basename(resolve(dir)))) {
+  let pattern
+  try {
+    pattern = profileNamePattern(options.prefix ?? PROFILE_PREFIX)
+  } catch (error) {
+    return { ...report, ok: false, rejected: error.message }
+  }
+  if (!pattern.test(basename(resolve(dir)))) {
     return { ...report, ok: false, rejected: `not a profile directory of this tool: ${String(dir)}` }
   }
   if (options.root !== undefined && dirname(resolve(dir)) !== resolve(options.root)) {
@@ -454,6 +515,14 @@ export function sweepStaleProfiles(options = {}) {
   const skipped = []
   let processQueries = 0
 
+  const prefix = options.prefix ?? PROFILE_PREFIX
+  let pattern
+  try {
+    pattern = profileNamePattern(prefix)
+  } catch (error) {
+    return { swept, skipped, processQueries, error: error.message }
+  }
+
   let names
   try {
     names = readdirSync(root)
@@ -463,7 +532,7 @@ export function sweepStaleProfiles(options = {}) {
 
   const candidates = []
   for (const name of names) {
-    if (!PROFILE_NAME.test(name)) continue
+    if (!pattern.test(name)) continue
     const dir = join(root, name)
     let stat
     try {
@@ -496,7 +565,7 @@ export function sweepStaleProfiles(options = {}) {
       continue
     }
     try {
-      assertSafeProfileDir(candidate.dir, root)
+      assertSafeProfileDir(candidate.dir, root, { prefix })
     } catch (error) {
       skipped.push({ dir: candidate.dir, reason: error.message })
       continue
