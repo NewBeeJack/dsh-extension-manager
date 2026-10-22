@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] — 2026-10-22
+
+Developer tooling hardening for the Edge browser lifecycle; **no runtime product change**.
+
+- `scripts/dev/shot.mjs` now starts the browser inside `try/finally`, tracks it by PID, prefers a CDP `Browser.close` and only then falls back to `taskkill /PID <pid> /T /F` — never by image name.
+- New `scripts/dev/browser-lifecycle.mjs`: profile-directory path gates (real parent, symlink rejection, naming rule, prefix allowlist), process enumeration with exact `--user-data-dir` ownership matching (including quoted and boundary cases), creation-time re-check before termination, bounded delete retries and a single-enumeration stale-profile sweep.
+- Directory namespaces are parameterised: `dsh-em-chrome-` (screenshot tool, default unchanged) and `dsh-em-layout-` (layout tool); neither sweep can claim the other namespace's directories.
+- `scripts/dev/verify-dialog-layout.mjs` no longer uses `chrome?.kill()` + a fixed 300 ms wait + an empty `catch`. The devtools port now comes only from `DevToolsActivePort` inside that run's own profile; the page target must be acknowledged by the browser-level `Target.getTargets` before any navigation; `Browser.close` travels over the browser-level socket; a failed handshake sends zero browser commands.
+- Every external wait is bounded (socket open, each CDP command, HTTP probe, process exit, delete retry), and shutdown is idempotent across signals and the synchronous `exit` fallback.
+- New `scripts/dev/test-lifecycle.mjs` (18 cases) and `scripts/dev/test-layout-guard.mjs` (55 cases) cover ownership isolation, path gates, endpoint verification, timeouts, identity refusal and launch-argument passing.
+- Isolation switches (`--disable-sync`, `--disable-features=msEdgeSyncConsent,msImplicitSignin,ImplicitSignInFlowV3,msEdgeIdentityFeature`, `--no-service-autorun`, `--disable-background-networking`, `--disable-extensions`) are supplied by production code and asserted through an injected spawn.
+- `package.json` only gains the `test:lifecycle` script. `lib/`, the DSH bundle, dependencies and all user-facing behaviour are unchanged.
+- Known limits carried forward: the PID-reuse window is narrowed but not eliminated; elevated/unelevated restart has not been exercised; the real-Edge isolation result covers one browser version on one Windows account only.
+
 ## [0.4.5] — 2026-10-21
 
 Default Plugin icon replacement; **not published** to npm/GitHub.
